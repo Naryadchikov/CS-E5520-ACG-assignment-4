@@ -341,7 +341,7 @@ namespace FW
                 color += FW::pow(FW::max(0.f, nDotH), glossiness) * normFactor * specular;
             }
 
-            Ei += (cosThetaL * cosTheta / (pdf * distance * distance)) * lightEmission * color;
+            Ei += cosThetaL * cosTheta / FW::max(pdf * distance * distance, 1e-7f) * lightEmission * color;
         }
 
         // cosine weighted direction
