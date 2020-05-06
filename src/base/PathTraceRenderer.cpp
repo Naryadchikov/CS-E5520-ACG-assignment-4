@@ -61,6 +61,7 @@ namespace FW
 
         Vec2f uv;
 
+        // Diffuse part
         if (mat->textures[MeshBase::TextureType_Diffuse].exists())
         {
             // read diffuse texture
@@ -254,6 +255,7 @@ namespace FW
         // Russian roulette
         if (ctx.m_bounces < 0)
         {
+            // TODO: should be in ctx, so it is configurable via UI
             unsigned int rrBoost = 5;
             unsigned int probability = 100 / rrBoost;
 
@@ -267,7 +269,7 @@ namespace FW
                     Ro = result.point;
                     db = throughput;
                     Ei += (float)rrBoost * db * pathIteration(ctx, R, result, samplerBase, bounce, Rd, n, throughput);
-                    //rrBoost = rrBoost * rrBoost;
+                    //rrBoost = rrBoost * rrBoost; // should it be doubled because overall probability would decrease in twice?
                     ++bounce;
                 }
                 else
@@ -321,18 +323,22 @@ namespace FW
 
             Vec3f color = diffuse;
 
+            // glossy reflection (Blinn-Phong)
             if (specular.length() > 0.f)
             {
                 float glossiness = result.tri->m_material->glossiness;
-                float normCoeff = (glossiness + 2.f) / (4.f * FW_PI * (2.f - pow(2.f, -glossiness / 2.f)));
+
+                // normalization factor for Blinn-Phong model
+                float normFactor = (glossiness + 2.f) / (4.f * FW_PI * (2.f - pow(2.f, -glossiness / 2.f)));
 
                 // Calculate the half vector between the light vector and the view vector
-                Vec3f H = (unionD + Rd.normalized()).normalized();
+                Vec3f H = (unionD - Rd.normalized()).normalized();
 
                 // Intensity of the specular light
                 float nDotH = FW::dot(n, H);
 
-                color += FW::pow(FW::max(0.f, nDotH), glossiness) * normCoeff * specular;
+                // adding specular part to diffuse one
+                color += FW::pow(FW::max(0.f, nDotH), glossiness) * normFactor * specular;
             }
 
             Ei += (cosThetaL * cosTheta / (pdf * distance * distance)) * lightEmission * color;
