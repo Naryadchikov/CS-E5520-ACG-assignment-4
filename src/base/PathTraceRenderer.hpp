@@ -124,9 +124,9 @@ namespace FW
                                std::vector<PathVisualizationNode>& visualization);
 
         static Vec3f pathIteration(PathTracerContext& ctx, Random& R, const RaycastResult result, int samplerBase,
-                                   int dimension, Vec3f& Rd, Vec3f& n, Vec3f& throughput);
+                                   int bounce, Vec3f& Rd, Vec3f& n, Vec3f& throughput);
 
-        static void chooseLightSample(PathTracerContext& ctx, int samplerBase, int dimension, float& pdf, Vec3f& Pl,
+        static void chooseLightSample(PathTracerContext& ctx, int samplerBase, int bounce, float& pdf, Vec3f& Pl,
                                       Vec3f& lightNormal, Vec3f& lightEmission, Random& R, const RaycastResult result);
 
         static void chooseRandomLightSample(PathTracerContext& ctx, float& pdf, Vec3f& Pl, Vec3f& lightNormal,
@@ -139,8 +139,6 @@ namespace FW
         static void pathTraceBlock(MulticoreLauncher::Task& t);
 
         static void getTextureParameters(const RaycastResult& hit, Vec3f& diffuse, Vec3f& n, Vec3f& specular);
-
-        static void changeSaturation(Vec4f& color, float change);
 
         void updatePicture(Image* display); // normalize by 1/w
 

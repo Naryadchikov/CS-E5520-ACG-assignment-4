@@ -9,43 +9,10 @@
 #include <string>
 
 
-#define  Pr  .299
-#define  Pg  .587
-#define  Pb  .114
-
-
 namespace FW
 {
     bool PathTraceRenderer::m_normalMapped = false;
     bool PathTraceRenderer::debugVis = false;
-
-    //  public-domain function by Darel Rex Finley
-    //
-    //  The passed-in RGB values can be on any desired scale, such as 0 to
-    //  to 1, or 0 to 255.  (But use the same scale for all three!)
-    //
-    //  The "change" parameter works like this:
-    //    0.0 creates a black-and-white image.
-    //    0.5 reduces the color saturation by half.
-    //    1.0 causes no change.
-    //    2.0 doubles the color saturation.
-    //  Note:  A "change" value greater than 1.0 may project your RGB values
-    //  beyond their normal range, in which case you probably should truncate
-    //  them to the desired range before trying to use them in an image.
-    void PathTraceRenderer::changeSaturation(Vec4f& color, float change)
-    {
-        double P = FW::sqrt(
-            color.x * color.x * Pr +
-            color.y * color.y * Pg +
-            color.z * color.z * Pb
-        );
-
-        color.x = P + (color.x - P) * change;
-        color.y = P + (color.y - P) * change;
-        color.z = P + (color.z - P) * change;
-
-        color = FW::clamp(color, 0.f, 1.f);
-    }
 
     void PathTraceRenderer::getTextureParameters(const RaycastResult& hit, Vec3f& diffuse, Vec3f& n, Vec3f& specular)
     {
@@ -205,7 +172,7 @@ namespace FW
         Vec3f Ei(0.f);
         Vec3f n(0.f);
         Vec3f throughput(1.f);
-        Vec3f db;
+        Vec3f cb;
         int bounce;
 
         for (bounce = 0; bounce < FW::abs(ctx.m_bounces) + 1; ++bounce)
@@ -224,9 +191,12 @@ namespace FW
                     }
                 }
 
+                cb = throughput;
+
+                Ei += cb * pathIteration(ctx, R, result, samplerBase, bounce, Rd, n, throughput);
+
+                // Update ray origin for next iteration
                 Ro = result.point;
-                db = throughput;
-                Ei += db * pathIteration(ctx, R, result, samplerBase, bounce, Rd, n, throughput);
 
                 if (debugVis)
                 {
@@ -266,11 +236,15 @@ namespace FW
                 // if we hit something, fetch a color and insert into image
                 if (result.tri != nullptr)
                 {
+                    cb = throughput;
+
+                    Ei += (float)rrBoost * cb * pathIteration(ctx, R, result, samplerBase, bounce, Rd, n, throughput);
+
+                    // Update ray origin for next iteration
                     Ro = result.point;
-                    db = throughput;
-                    Ei += (float)rrBoost * db * pathIteration(ctx, R, result, samplerBase, bounce, Rd, n, throughput);
-                    //rrBoost = rrBoost * rrBoost; // should it be doubled because overall probability would decrease in twice?
+
                     ++bounce;
+                    //rrBoost = rrBoost * rrBoost; // should it be doubled because overall probability would decrease in twice?
                 }
                 else
                 {
@@ -285,7 +259,7 @@ namespace FW
     }
 
     Vec3f PathTraceRenderer::pathIteration(PathTracerContext& ctx, Random& R, const RaycastResult result,
-                                           int samplerBase, int dimension, Vec3f& Rd, Vec3f& n, Vec3f& throughput)
+                                           int samplerBase, int bounce, Vec3f& Rd, Vec3f& n, Vec3f& throughput)
     {
         Vec3f diffuse;
         Vec3f specular;
@@ -306,7 +280,7 @@ namespace FW
         Vec3f lightNormal;
         Vec3f lightEmission;
 
-        chooseLightSample(ctx, samplerBase, dimension, pdf, Pl, lightNormal, lightEmission, R, result);
+        chooseLightSample(ctx, samplerBase, bounce, pdf, Pl, lightNormal, lightEmission, R, result);
 
         // construct vector from current vertex (o) to light sample
         Vec3f o = result.point;
@@ -344,11 +318,14 @@ namespace FW
             Ei += cosThetaL * cosTheta / FW::max(pdf * distance * distance, 1e-7f) * lightEmission * color;
         }
 
-        // cosine weighted direction
+        /* Cosine weighted direction */
+        // 1st bounce draws from 3rd and 4th dimensions
+        // 2nd bounce gets dimensions 5th and 6th
+        // and so on
         Vec2f rv;
-        int r = R.getS32(1, 10000);
-        rv.x = 2.f * sobol::sample(samplerBase + r, 4 * dimension + 2) - 1.f;
-        rv.y = 2.f * sobol::sample(samplerBase + r, 4 * dimension + 3) - 1.f;
+        int r = R.getU32(1, 10000);
+        rv.x = 2.f * sobol::sample(samplerBase + r, bounce + 3) - 1.f;
+        rv.y = 2.f * sobol::sample(samplerBase + r, bounce + 4) - 1.f;
 
         float sqrtX = FW::sqrt(rv.x);
         float theta = 2.f * FW_PI * rv.y;
@@ -356,20 +333,20 @@ namespace FW
                                          sqrtX * FW::sin(theta),
                                          FW::sqrt(FW::max(0.f, 1.f - rv.x)));
 
-        // setting new Rd
+        // Update ray direction for next iteration
         Rd = (*ctx.m_camera).getFar() * cwd;
 
         return Ei;
     }
 
-    void PathTraceRenderer::chooseLightSample(PathTracerContext& ctx, int samplerBase, int dimension, float& pdf,
+    void PathTraceRenderer::chooseLightSample(PathTracerContext& ctx, int samplerBase, int bounce, float& pdf,
                                               Vec3f& Pl, Vec3f& lightNormal, Vec3f& lightEmission, Random& R,
                                               const RaycastResult result)
     {
         AreaLight* light = ctx.m_light;
         std::vector<RTTriangle*> lightTriangles = ctx.m_lightTriangles;
 
-        light->sample(pdf, Pl, samplerBase, dimension, R);
+        light->sample(pdf, Pl, samplerBase, bounce, R);
 
         float largestEmissivePower = (
                 light->getSize().x * light->getSize().y * 4 * light->getEmission() /
@@ -484,8 +461,8 @@ namespace FW
         auto height = image->getSize().y;
 
         // TODO: should be in ctx, so it is configurable via UI
+        int numAARays = 16;
         float filterWidth = 1.f;
-        float saturationChange = 1.f;
 
         float filterScale = 2.f / filterWidth;
 
@@ -506,7 +483,7 @@ namespace FW
         static std::atomic<uint32_t> seed = 0;
         uint32_t current_seed = seed.fetch_add(1);
         Random R(t.idx + current_seed); // this is bogus, just to make the random numbers change each iteration
-        int base = t.idx * R.getS32(1, 9) + R.getS32(1, 10000);
+        int base = t.idx * R.getU32(1, 9) + R.getU32(1, 10000);
 
         for (int i = 0; i < block.m_width * block.m_height; ++i)
         {
@@ -515,42 +492,51 @@ namespace FW
                 return;
             }
 
-            float rs1 = filterWidth * (sobol::sample(base + i, 0) - 0.5f) + 0.5f;
-            float rs2 = filterWidth * (sobol::sample(base + i, 1) - 0.5f) + 0.5f;
+            Vec4f color;
+
             int pixel_x = block.m_x + (i % block.m_width);
             int pixel_y = block.m_y + (i / block.m_width);
-            float xr = (float)pixel_x + rs1;
-            float yr = (float)pixel_y + rs2;
 
-            if (xr < 0.f)
+            // Multiple rays for each pixel for Anti-Aliasing
+            for (int j = 0; j < numAARays; ++j)
             {
-                xr *= -1.f;
+                // AA samples (1st and 2nd dimension)
+                float rs1 = filterWidth * (sobol::sample(base + i + j, 1) - 0.5f) + 0.5f;
+                float rs2 = filterWidth * (sobol::sample(base + i + j, 2) - 0.5f) + 0.5f;
+                float xr = (float)pixel_x + rs1;
+                float yr = (float)pixel_y + rs2;
+
+                if (xr < 0.f)
+                {
+                    xr = -xr;
+                }
+                if (xr > width)
+                {
+                    xr -= rs1;
+                }
+
+                if (yr < 0.f)
+                {
+                    yr = -yr;
+                }
+                if (yr > height)
+                {
+                    yr -= rs2;
+                }
+
+                float x = 2.f * xr / width - 1.f;
+                float y = -2.f * yr / height + 1.f;
+
+                Vec3f Ei = tracePath(x, y, ctx, base + i, R, dummyVisualization);
+
+                color += filterGauss(filterScale * (rs1 - 0.5f), filterScale * (rs2 - 0.5f)) * Vec4f(Ei, 1.f);
             }
-            if (xr > width)
-            {
-                xr -= rs1;
-            }
 
-            if (yr < 0.f)
-            {
-                yr *= -1.f;
-            }
-            if (yr > height)
-            {
-                yr -= rs2;
-            }
+            color /= color.w;
 
-            float x = 2.f * xr / width - 1.f;
-            float y = -2.f * yr / height + 1.f;
-
-            Vec3f Ei = tracePath(x, y, ctx, base + i, R, dummyVisualization);
-            Vec4f finalColor = filterGauss(filterScale * (rs1 - 0.5f), filterScale * (rs2 - 0.5f)) * Vec4f(Ei, 1.f);
-
-            changeSaturation(finalColor, saturationChange);
-
-            // Put pixel.
+            // Put pixel
             Vec4f prev = image->getVec4f(Vec2i(pixel_x, pixel_y));
-            prev += finalColor;
+            prev += color;
             image->setVec4f(Vec2i(pixel_x, pixel_y), prev);
         }
     }
