@@ -13,6 +13,10 @@ namespace FW
 {
     bool PathTraceRenderer::m_normalMapped = false;
     bool PathTraceRenderer::debugVis = false;
+    float PathTraceRenderer::m_terminationProb = 0.2f;
+    bool PathTraceRenderer::m_enableEmittingTriangles = false;
+    int PathTraceRenderer::m_AARaysNumber = 4;
+    float PathTraceRenderer::m_GaussFilterWidth = 1.f;
 
     void PathTraceRenderer::getTextureParameters(const RaycastResult& hit, Vec3f& diffuse, Vec3f& n, Vec3f& specular)
     {
@@ -106,7 +110,6 @@ namespace FW
           m_bResidual(false),
           m_scene(nullptr),
           m_rt(nullptr),
-          m_light(nullptr),
           m_pass(0),
           m_bounces(0),
           m_destImage(0),
@@ -172,7 +175,7 @@ namespace FW
         Vec3f Ei(0.f);
         Vec3f n(0.f);
         Vec3f throughput(1.f);
-        Vec3f cb;
+        Vec3f T;
         int bounce;
 
         for (bounce = 0; bounce < FW::abs(ctx.m_bounces) + 1; ++bounce)
@@ -185,15 +188,15 @@ namespace FW
                 {
                     Rd = result.dir;
 
-                    if (result.tri->m_material->emission.length() > 0.f)
+                    if (m_enableEmittingTriangles && result.tri->m_material->emission.length() > 0.f)
                     {
                         Ei = result.tri->m_material->emission;
                     }
                 }
 
-                cb = throughput;
+                T = throughput;
 
-                Ei += cb * pathIteration(ctx, R, result, samplerBase, bounce, Rd, n, throughput);
+                Ei += T * pathIteration(ctx, R, result, samplerBase, bounce, Rd, n, throughput);
 
                 // Update ray origin for next iteration
                 Ro = result.point;
@@ -222,29 +225,24 @@ namespace FW
             }
         }
 
-        // Russian roulette
+        // Russian Roulette
         if (ctx.m_bounces < 0)
         {
-            // TODO: should be in ctx, so it is configurable via UI
-            unsigned int rrBoost = 5;
-            unsigned int probability = 100 / rrBoost;
-
-            while (R.getU32() % 100 < probability)
+            while (m_terminationProb < R.getF32(0.f, 1.f))
             {
                 RaycastResult result = rt->raycast(Ro + 0.001f * n, Rd);
 
                 // if we hit something, fetch a color and insert into image
                 if (result.tri != nullptr)
                 {
-                    cb = throughput;
+                    T = throughput;
 
-                    Ei += (float)rrBoost * cb * pathIteration(ctx, R, result, samplerBase, bounce, Rd, n, throughput);
+                    Ei += T * pathIteration(ctx, R, result, samplerBase, bounce, Rd, n, throughput) / m_terminationProb;
 
                     // Update ray origin for next iteration
                     Ro = result.point;
 
                     ++bounce;
-                    //rrBoost = rrBoost * rrBoost; // should it be doubled because overall probability would decrease in twice?
                 }
                 else
                 {
@@ -280,7 +278,7 @@ namespace FW
         Vec3f lightNormal;
         Vec3f lightEmission;
 
-        chooseLightSample(ctx, samplerBase, bounce, pdf, Pl, lightNormal, lightEmission, R, result);
+        chooseAndSampleLight(ctx, samplerBase, bounce, pdf, Pl, lightNormal, lightEmission, R, result);
 
         // construct vector from current vertex (o) to light sample
         Vec3f o = result.point;
@@ -339,72 +337,62 @@ namespace FW
         return Ei;
     }
 
-    void PathTraceRenderer::chooseLightSample(PathTracerContext& ctx, int samplerBase, int bounce, float& pdf,
-                                              Vec3f& Pl, Vec3f& lightNormal, Vec3f& lightEmission, Random& R,
-                                              const RaycastResult result)
+    void PathTraceRenderer::chooseAndSampleLight(PathTracerContext& ctx, int samplerBase, int bounce, float& pdf,
+                                                 Vec3f& Pl, Vec3f& lightNormal, Vec3f& lightEmission, Random& R,
+                                                 const RaycastResult& result)
     {
-        AreaLight* light = ctx.m_light;
-        std::vector<RTTriangle*> lightTriangles = ctx.m_lightTriangles;
+        AreaLight* lightToSample = ctx.m_areaLights[0];
+        float largestEmissivePower = 0.f;
 
-        light->sample(pdf, Pl, samplerBase, bounce, R);
-
-        float largestEmissivePower = (
-                light->getSize().x * light->getSize().y * 4 * light->getEmission() /
-                FW::pow((Pl - result.point).length(), 2)
-            )
-            .length();
-
-        auto lightId = lightTriangles.size();
-
-        for (size_t i = 0; i < lightTriangles.size(); ++i)
+        // choosing area light with highest emissive power
+        for (auto light : ctx.m_areaLights)
         {
-            sampleEmissionTriangle(pdf, Pl, R, lightTriangles[i]);
+            lightToSample->sample(pdf, Pl, samplerBase, bounce, R);
 
             float emissivePower = (
-                    lightTriangles[i]->area() * lightTriangles[i]->m_material->emission /
+                    light->getSize().x * light->getSize().y * 4 * light->getEmission() /
                     FW::pow((Pl - result.point).length(), 2)
                 )
                 .length();
 
             if (emissivePower > largestEmissivePower)
             {
-                lightId = i;
+                largestEmissivePower = emissivePower;
+                lightToSample = light;
             }
         }
 
-        if (lightId == lightTriangles.size())
-        {
-            light->sample(pdf, Pl, 0, R);
-
-            lightNormal = light->getNormal();
-            lightEmission = light->getEmission();
-        }
-        else
-        {
-            RTTriangle* lightTri = lightTriangles[lightId];
-            MeshBase::Material* emissiveMat = lightTri->m_material;
-
-            sampleEmissionTriangle(pdf, Pl, R, lightTri);
-
-            lightNormal = lightTri->normal();
-            lightEmission = emissiveMat->emission;
-        }
-    }
-
-    void PathTraceRenderer::chooseRandomLightSample(PathTracerContext& ctx, float& pdf, Vec3f& Pl, Vec3f& lightNormal,
-                                                    Vec3f& lightEmission, Random& R)
-    {
-        AreaLight* light = ctx.m_light;
         std::vector<RTTriangle*> lightTriangles = ctx.m_lightTriangles;
+        auto lightId = lightTriangles.size();
 
-        size_t lightId = R.getU64(0, lightTriangles.size());
+        // choosing light with highest emissive power
+        // from all light triangles and previously selected area light
+        if (m_enableEmittingTriangles)
+        {
+            for (size_t i = 0; i < lightTriangles.size(); ++i)
+            {
+                sampleEmissionTriangle(pdf, Pl, R, lightTriangles[i]);
 
+                float emissivePower = (
+                        lightTriangles[i]->area() * lightTriangles[i]->m_material->emission /
+                        FW::pow((Pl - result.point).length(), 2)
+                    )
+                    .length();
+
+                if (emissivePower > largestEmissivePower)
+                {
+                    lightId = i;
+                }
+            }
+        }
+
+        // sampling selected light
         if (lightId == lightTriangles.size())
         {
-            light->sample(pdf, Pl, 0, R);
+            lightToSample->sample(pdf, Pl, samplerBase, bounce, R);
 
-            lightNormal = light->getNormal();
-            lightEmission = light->getEmission();
+            lightNormal = lightToSample->getNormal();
+            lightEmission = lightToSample->getEmission();
         }
         else
         {
@@ -440,7 +428,7 @@ namespace FW
 
     float PathTraceRenderer::filterGauss(float x, float y)
     {
-        float sigma = 1.f;
+        float sigma = FW::clamp(m_GaussFilterWidth / 3.f, 1.f, m_GaussFilterWidth);
         float s = 2.f * sigma * sigma;
 
         return 1.f / FW::sqrt(FW_PI * s) * FW::exp(-1.f * (x * x + y * y) / s);
@@ -459,12 +447,6 @@ namespace FW
 
         auto width = image->getSize().x;
         auto height = image->getSize().y;
-
-        // TODO: should be in ctx, so it is configurable via UI
-        int numAARays = 16;
-        float filterWidth = 1.f;
-
-        float filterScale = 2.f / filterWidth;
 
         // get camera orientation and projection
         Mat4f worldToCamera = cameraCtrl.getWorldToCamera();
@@ -498,11 +480,11 @@ namespace FW
             int pixel_y = block.m_y + (i / block.m_width);
 
             // Multiple rays for each pixel for Anti-Aliasing
-            for (int j = 0; j < numAARays; ++j)
+            for (int j = 0; j < m_AARaysNumber; ++j)
             {
                 // AA samples (1st and 2nd dimension)
-                float rs1 = filterWidth * (sobol::sample(base + i + j, 1) - 0.5f) + 0.5f;
-                float rs2 = filterWidth * (sobol::sample(base + i + j, 2) - 0.5f) + 0.5f;
+                float rs1 = m_GaussFilterWidth * (sobol::sample(base + i + j, 1) - 0.5f) + 0.5f;
+                float rs2 = m_GaussFilterWidth * (sobol::sample(base + i + j, 2) - 0.5f) + 0.5f;
                 float xr = (float)pixel_x + rs1;
                 float yr = (float)pixel_y + rs2;
 
@@ -529,7 +511,10 @@ namespace FW
 
                 Vec3f Ei = tracePath(x, y, ctx, base + i, R, dummyVisualization);
 
-                color += filterGauss(filterScale * (rs1 - 0.5f), filterScale * (rs2 - 0.5f)) * Vec4f(Ei, 1.f);
+                color += filterGauss(
+                    2.f * (rs1 - 0.5f) / m_GaussFilterWidth,
+                    2.f * (rs2 - 0.5f) / m_GaussFilterWidth
+                ) * Vec4f(Ei, 1.f);
             }
 
             color /= color.w;
@@ -541,9 +526,11 @@ namespace FW
         }
     }
 
-    void PathTraceRenderer::startPathTracingProcess(const MeshWithColors* scene, AreaLight* light, RayTracer* rt,
-                                                    Image* dest, int bounces, const CameraControls& camera,
-                                                    const std::vector<RTTriangle*> lightTriangles)
+    void PathTraceRenderer::startPathTracingProcess(const MeshWithColors* scene,
+                                                    const std::vector<AreaLight*>& areaLights,
+                                                    RayTracer* rt, Image* dest, int bounces,
+                                                    const CameraControls& camera,
+                                                    const std::vector<RTTriangle*>& lightTriangles)
     {
         FW_ASSERT(!m_context.m_bForceExit);
 
@@ -552,15 +539,16 @@ namespace FW
         m_context.m_camera = &camera;
         m_context.m_rt = rt;
         m_context.m_scene = scene;
-        m_context.m_light = light;
+
+        m_context.m_areaLights = areaLights;
+        m_context.m_lightTriangles = lightTriangles;
+
         m_context.m_pass = 0;
         m_context.m_bounces = bounces;
         m_context.m_image.reset(new Image(dest->getSize(), ImageFormat::RGBA_Vec4f));
 
         m_context.m_destImage = dest;
         m_context.m_image->clear();
-
-        m_context.m_lightTriangles = lightTriangles;
 
         // Add rendering blocks.
         m_context.m_blocks.clear();

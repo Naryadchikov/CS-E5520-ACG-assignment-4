@@ -19,6 +19,11 @@ namespace FW
         {
         }
 
+        AreaLight(float R, float G, float B, float intensity) : m_size(0.25f, 0.25f)
+        {
+            m_E = intensity * Vec3f(R, G, B).normalized();
+        }
+
         // this function draws samples on the light source for computing direct illumination
         // the "base" input can be used for driving QMC samplers; unless you do something to it yourself, has no effect.
         void sample(float& pdf, Vec3f& p, int base, Random& rnd);
@@ -50,6 +55,11 @@ namespace FW
         }
 
         void setEmission(const Vec3f& E) { m_E = E; }
+
+        void setEmission(float R, float G, float B, float intensity)
+        {
+            m_E = intensity * Vec3f(R, G, B).normalized();
+        }
 
         void draw(const Mat4f& worldToCamera, const Mat4f& projection);
 

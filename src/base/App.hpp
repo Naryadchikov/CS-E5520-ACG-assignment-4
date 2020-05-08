@@ -55,7 +55,11 @@ namespace FW
             Action_ChopBehindNear,
 
             Action_PathTraceMode,
-            Action_PlaceLightSourceAtCamera
+            Action_PlaceLightSourceAtCamera,
+
+            Action_AddNewLight,
+            Action_RemoveSelectedLight,
+            Action_ChangeSelectedLight
         };
 
         enum CullMode
@@ -146,15 +150,37 @@ namespace FW
         std::vector<RTTriangle*> m_rtLightTriangles; // Contains all triangles with an emission of over 0 in the scene.
 
         std::unique_ptr<MeshWithColors> m_mesh;
-        std::unique_ptr<AreaLight> m_areaLight;
+
+        std::vector<AreaLight*> m_areaLights;
+        float m_selectedLightIntensity;
+        int m_selectedLightId;
+        int m_lightColorRed;
+        int m_lightColorGreen;
+        int m_lightColorBlue;
+
         std::unique_ptr<PathTraceRenderer> m_pathtrace_renderer;
+
         int m_numBounces;
         float m_lightSize;
         Timer m_updateClock;
 
         bool m_RTMode;
         bool m_useRussianRoulette;
+
+        // whether or not using normal maps
         bool m_normalMapped;
+
+        // termination probability for Russian Roulette
+        float m_terminationProb;
+
+        // whether or not sampling light-emitting triangles
+        bool m_enableEmittingTriangles;
+
+        // number of rays per pixel for Anti-Aliasing
+        int m_AARaysNumber;
+
+        // Gauss filter width
+        float m_GaussFilterWidth;
 
         bool clear_on_next_frame = false;
         Mat4f previous_camera = Mat4f(0);

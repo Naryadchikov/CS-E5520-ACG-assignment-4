@@ -48,7 +48,7 @@ namespace FW
 
         RayTracer* m_rt;
 
-        AreaLight* m_light;
+        std::vector<AreaLight*> m_areaLights;
 
         int m_pass; ///< Pass number, increased by one for each full render iteration.
 
@@ -117,8 +117,9 @@ namespace FW
 
         // negative #bounces = -N means start russian roulette from Nth bounce
         // positive N means always trace up to N bounces
-        void startPathTracingProcess(const MeshWithColors* scene, AreaLight*, RayTracer* rt, Image* dest, int bounces,
-                                     const CameraControls& camera, const std::vector<RTTriangle*> lightTriangles);
+        void startPathTracingProcess(const MeshWithColors* scene, const std::vector<AreaLight*>& areaLights,
+                                     RayTracer* rt, Image* dest, int bounces, const CameraControls& camera,
+                                     const std::vector<RTTriangle*>& lightTriangles);
 
         static Vec3f tracePath(float x, float y, PathTracerContext& ctx, int samplerBase, Random& rnd,
                                std::vector<PathVisualizationNode>& visualization);
@@ -126,11 +127,9 @@ namespace FW
         static Vec3f pathIteration(PathTracerContext& ctx, Random& R, const RaycastResult result, int samplerBase,
                                    int bounce, Vec3f& Rd, Vec3f& n, Vec3f& throughput);
 
-        static void chooseLightSample(PathTracerContext& ctx, int samplerBase, int bounce, float& pdf, Vec3f& Pl,
-                                      Vec3f& lightNormal, Vec3f& lightEmission, Random& R, const RaycastResult result);
-
-        static void chooseRandomLightSample(PathTracerContext& ctx, float& pdf, Vec3f& Pl, Vec3f& lightNormal,
-                                            Vec3f& lightEmission, Random& R);
+        static void chooseAndSampleLight(PathTracerContext& ctx, int samplerBase, int bounce, float& pdf, Vec3f& Pl,
+                                         Vec3f& lightNormal, Vec3f& lightEmission, Random& R,
+                                         const RaycastResult& result);
 
         static void sampleEmissionTriangle(float& pdf, Vec3f& p, Random& rnd, RTTriangle* tri);
 
@@ -146,10 +145,15 @@ namespace FW
 
         void stop(void);
 
-        void setNormalMapped(bool b)
-        {
-            m_normalMapped = b;
-        }
+        void setNormalMapped(bool b) { m_normalMapped = b; }
+
+        void setTerminationProb(float value) { m_terminationProb = FW::clamp(value, 0.f, 1.f); }
+
+        void setEnableEmittingTriangles(bool b) { m_enableEmittingTriangles = b; }
+
+        void setAARaysNumber(int value) { m_AARaysNumber = value; }
+
+        void setGaussFilterWidth(float value) { m_GaussFilterWidth = value; }
 
     protected:
 
@@ -159,6 +163,19 @@ namespace FW
 
         MulticoreLauncher m_launcher;
 
+        // whether or not using normal maps
         static bool m_normalMapped;
+
+        // termination probability for Russian Roulette
+        static float m_terminationProb;
+
+        // whether or not sampling light-emitting triangles
+        static bool m_enableEmittingTriangles;
+
+        // number of rays per pixel for Anti-Aliasing
+        static int m_AARaysNumber;
+
+        // Gauss filter width
+        static float m_GaussFilterWidth;
     };
 } // namespace FW

@@ -41,6 +41,15 @@ App::App(std::vector<std::string>& cmd_args)
       m_RTMode(false),
       m_useRussianRoulette(false),
       m_normalMapped(false),
+      m_terminationProb(0.2f),
+      m_enableEmittingTriangles(false),
+      m_AARaysNumber(4),
+      m_GaussFilterWidth(1.f),
+      m_selectedLightIntensity(100.f),
+      m_selectedLightId(0),
+      m_lightColorRed(255),
+      m_lightColorGreen(255),
+      m_lightColorBlue(255),
       m_img(Vec2i(10, 10), ImageFormat::RGBA_Vec4f) // will get resized immediately
 {
     m_commonCtrl.showFPS(true);
@@ -88,20 +97,52 @@ App::App(std::vector<std::string>& cmd_args)
     m_commonCtrl.addButton((S32*)&m_action, Action_PlaceLightSourceAtCamera, FW_KEY_SPACE,
                            "Place light at camera (SPACE)", &clear_on_next_frame);
     m_commonCtrl.addButton(&m_clearVisualization, FW_KEY_BACKSPACE, "Clear visualization (BACKSPACE)");
+
+    m_commonCtrl.addSeparator();
+    m_commonCtrl.addButton((S32*)&m_action, Action_AddNewLight, FW_KEY_PLUS, "Add New Light (+)", &clear_on_next_frame);
+    m_commonCtrl.addButton((S32*)&m_action, Action_RemoveSelectedLight, FW_KEY_MINUS,
+                           "Remove Remove Selected Light (-)", &clear_on_next_frame);
+    m_commonCtrl.addButton((S32*)&m_action, Action_ChangeSelectedLight, FW_KEY_SHIFT, "Change Selected Light (SHIFT)");
+    m_commonCtrl.addSeparator();
+
     m_commonCtrl.addToggle(&m_useRussianRoulette, FW_KEY_NONE, "Use Russian Roulette", &clear_on_next_frame);
     m_commonCtrl.addToggle(&m_normalMapped, FW_KEY_NONE, "Use normal mapping", &clear_on_next_frame);
     m_commonCtrl.addToggle(&m_playbackVisualization, FW_KEY_NONE, "Visualization playback");
-    m_commonCtrl.beginSliderStack();
-    m_commonCtrl.addSlider(&m_numBounces, 0, 8, false, FW_KEY_NONE, FW_KEY_NONE, "Number of indirect bounces= %d", 0,
-                           &clear_on_next_frame);
-    m_commonCtrl.addSlider(&m_lightSize, 0.01f, 200.0f, false, FW_KEY_NONE, FW_KEY_NONE, "Light source area= %f", 0,
-                           &clear_on_next_frame);
-    m_commonCtrl.endSliderStack();
+    m_commonCtrl.addToggle(&m_enableEmittingTriangles, FW_KEY_NONE, "Sample emissive triangles", &clear_on_next_frame);
+
     m_commonCtrl.beginSliderStack();
     m_commonCtrl.addSlider(&m_numDebugPathCount, 1, 1000, false, FW_KEY_NONE, FW_KEY_NONE,
                            "Number of debug paths to fire= %d");
     m_commonCtrl.addSlider(&m_visualizationAlpha, 0.01f, 1.0f, false, FW_KEY_NONE, FW_KEY_NONE,
                            "Debug ray visualization alpha= %f");
+    m_commonCtrl.endSliderStack();
+
+    m_commonCtrl.beginSliderStack();
+    m_commonCtrl.addSlider(&m_numBounces, 0, 8, false, FW_KEY_NONE, FW_KEY_NONE, "Number of indirect bounces= %d", 0,
+                           &clear_on_next_frame);
+    m_commonCtrl.addSlider(&m_terminationProb, 0.1f, 0.9f, false, FW_KEY_NONE, FW_KEY_NONE,
+                           "Termination probability for Russian Roulette= %.2f", 0, &clear_on_next_frame);
+    m_commonCtrl.addSlider(&m_AARaysNumber, 1, 512, true, FW_KEY_NONE, FW_KEY_NONE,
+                           "Number of rays per pixel for Anti-Aliasing= %d", 0, &clear_on_next_frame);
+    m_commonCtrl.addSlider(&m_GaussFilterWidth, 1.f, 10.f, false, FW_KEY_NONE, FW_KEY_NONE,
+                           "Gauss filter width= %.2f", 0, &clear_on_next_frame);
+    m_commonCtrl.endSliderStack();
+
+    m_commonCtrl.beginSliderStack();
+    m_commonCtrl.addSlider(&m_lightColorRed, 0, 255, false, FW_KEY_NONE, FW_KEY_NONE, "Light Color Red Value= %d",
+                           0, &clear_on_next_frame);
+    m_commonCtrl.addSlider(&m_lightColorGreen, 0, 255, false, FW_KEY_NONE, FW_KEY_NONE,
+                           "Light Color Green Value= %d",
+                           0, &clear_on_next_frame);
+    m_commonCtrl.addSlider(&m_lightColorBlue, 0, 255, false, FW_KEY_NONE, FW_KEY_NONE, "Light Color Blue Value= %d",
+                           0, &clear_on_next_frame);
+    m_commonCtrl.endSliderStack();
+
+    m_commonCtrl.beginSliderStack();
+    m_commonCtrl.addSlider(&m_lightSize, 0.01f, 100.0f, false, FW_KEY_NONE, FW_KEY_NONE, "Light source area= %f", 0,
+                           &clear_on_next_frame);
+    m_commonCtrl.addSlider(&m_selectedLightIntensity, 0.f, 1000.0f, false, FW_KEY_NONE, FW_KEY_NONE,
+                           "Light Intensity= %f", 0, &clear_on_next_frame);
     m_commonCtrl.endSliderStack();
 
     m_window.addListener(this);
@@ -112,10 +153,11 @@ App::App(std::vector<std::string>& cmd_args)
 
     m_window.setSize(Vec2i(800, 600));
     m_pathtrace_renderer.reset(new PathTraceRenderer);
-    m_areaLight.reset(new AreaLight);
+
+    m_areaLights.push_back(
+        new AreaLight(m_lightColorRed, m_lightColorGreen, m_lightColorBlue, m_selectedLightIntensity));
 
     process_args(cmd_args);
-
 
     m_commonCtrl.loadState(m_commonCtrl.getStateFileName(1));
     m_timer.start();
@@ -270,7 +312,6 @@ bool App::handleEvent(const Window::Event& ev)
         delete this;
         return true;
     }
-
 
     Action action = m_action;
     m_action = Action_None;
@@ -435,10 +476,83 @@ bool App::handleEvent(const Window::Event& ev)
             chopBehindPlane(m_mesh.get(), pleq);
         }
         break;
+
     case Action_PlaceLightSourceAtCamera:
-        m_areaLight->setOrientation(m_cameraCtrl.getCameraToWorld().getXYZ());
-        m_areaLight->setPosition(m_cameraCtrl.getPosition());
+        m_areaLights[m_selectedLightId]->setOrientation(m_cameraCtrl.getCameraToWorld().getXYZ());
+        m_areaLights[m_selectedLightId]->setPosition(m_cameraCtrl.getPosition());
         m_commonCtrl.message("Placed light at camera");
+        break;
+
+    case Action_AddNewLight:
+        {
+            m_pathtrace_renderer->stop();
+            m_RTMode = false;
+
+            float newLightIntensity = 100.f;
+            AreaLight* newLight = new AreaLight(m_lightColorRed, m_lightColorGreen, m_lightColorBlue,
+                                                newLightIntensity);
+
+            newLight->setOrientation(m_cameraCtrl.getCameraToWorld().getXYZ());
+            newLight->setPosition(m_cameraCtrl.getPosition());
+
+            m_areaLights.push_back(newLight);
+
+            m_selectedLightId = m_areaLights.size() - 1;
+            m_selectedLightIntensity = newLightIntensity;
+
+            m_commonCtrl.message(FW::sprintf("Light %d is added.", m_selectedLightId));
+        }
+        break;
+
+    case Action_RemoveSelectedLight:
+        {
+            m_pathtrace_renderer->stop();
+            m_RTMode = false;
+
+            if (m_areaLights.size() == 1)
+            {
+                m_commonCtrl.message("At least one light should be present on scene!");
+                break;
+            }
+
+            delete m_areaLights[m_selectedLightId];
+            m_areaLights.erase(m_areaLights.begin() + m_selectedLightId);
+
+            m_commonCtrl.message(FW::sprintf("Light %d is removed.", m_selectedLightId));
+
+            m_selectedLightId--;
+
+            m_selectedLightIntensity = m_areaLights[m_selectedLightId]->getEmission().length();
+
+            m_lightSize = m_areaLights[m_selectedLightId]->getSize().x;
+
+            m_lightColorRed = m_areaLights[m_selectedLightId]->getEmission().x;
+            m_lightColorGreen = m_areaLights[m_selectedLightId]->getEmission().y;
+            m_lightColorBlue = m_areaLights[m_selectedLightId]->getEmission().z;
+
+            m_commonCtrl.message(FW::sprintf("Light %d is selected.", m_selectedLightId));
+        }
+        break;
+
+    case Action_ChangeSelectedLight:
+        {
+            m_pathtrace_renderer->stop();
+            m_RTMode = false;
+
+            m_selectedLightId = m_selectedLightId == m_areaLights.size() - 1
+                                    ? 0
+                                    : m_selectedLightId + 1;
+
+            m_selectedLightIntensity = m_areaLights[m_selectedLightId]->getEmission().length();
+
+            m_lightSize = m_areaLights[m_selectedLightId]->getSize().x;
+
+            m_lightColorRed = m_areaLights[m_selectedLightId]->getEmission().x;
+            m_lightColorGreen = m_areaLights[m_selectedLightId]->getEmission().y;
+            m_lightColorBlue = m_areaLights[m_selectedLightId]->getEmission().z;
+
+            m_commonCtrl.message(FW::sprintf("Light %d is selected.", m_selectedLightId));
+        }
         break;
 
     case Action_PathTraceMode:
@@ -453,8 +567,14 @@ bool App::handleEvent(const Window::Event& ev)
                 new(&m_img) Image(m_window.getSize(), ImageFormat::RGBA_Vec4f);
                 // placement new, will get autodestructed
             }
+
             m_pathtrace_renderer->setNormalMapped(m_normalMapped);
-            m_pathtrace_renderer->startPathTracingProcess(m_mesh.get(), m_areaLight.get(), m_rt.get(), &m_img,
+            m_pathtrace_renderer->setTerminationProb(m_terminationProb);
+            m_pathtrace_renderer->setEnableEmittingTriangles(m_enableEmittingTriangles);
+            m_pathtrace_renderer->setAARaysNumber(m_AARaysNumber);
+            m_pathtrace_renderer->setGaussFilterWidth(m_GaussFilterWidth);
+
+            m_pathtrace_renderer->startPathTracingProcess(m_mesh.get(), m_areaLights, m_rt.get(), &m_img,
                                                           m_useRussianRoulette ? -m_numBounces : m_numBounces,
                                                           m_cameraCtrl, m_rtLightTriangles);
         }
@@ -510,8 +630,18 @@ void App::readState(StateDump& d)
     d.get((bool&)m_useRussianRoulette, "m_useRussianRoulette");
     d.popOwner();
 
-    m_areaLight->readState(d);
-    m_lightSize = m_areaLight->getSize().x; // dirty; doesn't allow for rectangular lights, only square. TODO
+    for (auto light : m_areaLights)
+    {
+        delete light;
+    }
+
+    m_areaLights.clear();
+    m_areaLights.push_back(new AreaLight());
+
+    m_selectedLightId = 0;
+
+    m_areaLights[0]->readState(d);
+    m_lightSize = m_areaLights[0]->getSize().x; // dirty; doesn't allow for rectangular lights, only square. TODO
 
     if (m_meshFileName != meshFileName && meshFileName.getLength())
     {
@@ -530,7 +660,7 @@ void App::writeState(StateDump& d) const
     d.set((bool&)m_useRussianRoulette, "m_useRussianRoulette");
     d.popOwner();
 
-    m_areaLight->writeState(d);
+    m_areaLights[0]->writeState(d);
 }
 
 //------------------------------------------------------------------------
@@ -566,7 +696,17 @@ void App::renderFrame(GLContext* gl)
             new(&m_img) Image(m_window.getSize(), ImageFormat::RGBA_Vec4f); // placement new, will get autodestructed
         }
 
-        m_pathtrace_renderer->startPathTracingProcess(m_mesh.get(), m_areaLight.get(), m_rt.get(), &m_img,
+        m_areaLights[m_selectedLightId]->setEmission(m_lightColorRed, m_lightColorGreen, m_lightColorBlue,
+                                                     m_selectedLightIntensity);
+        m_areaLights[m_selectedLightId]->setSize(Vec2f(m_lightSize));
+
+        m_pathtrace_renderer->setNormalMapped(m_normalMapped);
+        m_pathtrace_renderer->setTerminationProb(m_terminationProb);
+        m_pathtrace_renderer->setEnableEmittingTriangles(m_enableEmittingTriangles);
+        m_pathtrace_renderer->setAARaysNumber(m_AARaysNumber);
+        m_pathtrace_renderer->setGaussFilterWidth(m_GaussFilterWidth);
+
+        m_pathtrace_renderer->startPathTracingProcess(m_mesh.get(), m_areaLights, m_rt.get(), &m_img,
                                                       m_useRussianRoulette ? -m_numBounces : m_numBounces,
                                                       m_cameraCtrl, m_rtLightTriangles);
     }
@@ -626,8 +766,10 @@ void App::renderFrame(GLContext* gl)
         glDrawBuffer(GL_BACK);
     }
 
-    m_areaLight->setSize(Vec2f(m_lightSize));
-    m_areaLight->draw(worldToCamera, projection);
+    for (auto light : m_areaLights)
+    {
+        light->draw(worldToCamera, projection);
+    }
 
     if (m_clearVisualization)
         m_visualization.clear();
