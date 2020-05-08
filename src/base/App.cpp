@@ -47,9 +47,9 @@ App::App(std::vector<std::string>& cmd_args)
       m_GaussFilterWidth(1.f),
       m_selectedLightIntensity(100.f),
       m_selectedLightId(0),
-      m_lightColorRed(255),
-      m_lightColorGreen(255),
-      m_lightColorBlue(255),
+      m_lightColorRed(57),
+      m_lightColorGreen(57),
+      m_lightColorBlue(57),
       m_img(Vec2i(10, 10), ImageFormat::RGBA_Vec4f) // will get resized immediately
 {
     m_commonCtrl.showFPS(true);
@@ -489,8 +489,7 @@ bool App::handleEvent(const Window::Event& ev)
             m_RTMode = false;
 
             float newLightIntensity = 100.f;
-            AreaLight* newLight = new AreaLight(m_lightColorRed, m_lightColorGreen, m_lightColorBlue,
-                                                newLightIntensity);
+            AreaLight* newLight = new AreaLight(255.f, 255.f, 255.f, newLightIntensity);
 
             newLight->setOrientation(m_cameraCtrl.getCameraToWorld().getXYZ());
             newLight->setPosition(m_cameraCtrl.getPosition());
@@ -498,7 +497,14 @@ bool App::handleEvent(const Window::Event& ev)
             m_areaLights.push_back(newLight);
 
             m_selectedLightId = m_areaLights.size() - 1;
+
             m_selectedLightIntensity = newLightIntensity;
+
+            m_lightSize = m_areaLights[m_selectedLightId]->getSize().x;
+
+            m_lightColorRed = (int)m_areaLights[m_selectedLightId]->getEmission().x % 256;
+            m_lightColorGreen = (int)m_areaLights[m_selectedLightId]->getEmission().y % 256;
+            m_lightColorBlue = (int)m_areaLights[m_selectedLightId]->getEmission().z % 256;
 
             m_commonCtrl.message(FW::sprintf("Light %d is added.", m_selectedLightId));
         }
@@ -526,9 +532,9 @@ bool App::handleEvent(const Window::Event& ev)
 
             m_lightSize = m_areaLights[m_selectedLightId]->getSize().x;
 
-            m_lightColorRed = m_areaLights[m_selectedLightId]->getEmission().x;
-            m_lightColorGreen = m_areaLights[m_selectedLightId]->getEmission().y;
-            m_lightColorBlue = m_areaLights[m_selectedLightId]->getEmission().z;
+            m_lightColorRed = (int)m_areaLights[m_selectedLightId]->getEmission().x % 256;
+            m_lightColorGreen = (int)m_areaLights[m_selectedLightId]->getEmission().y % 256;
+            m_lightColorBlue = (int)m_areaLights[m_selectedLightId]->getEmission().z % 256;
 
             m_commonCtrl.message(FW::sprintf("Light %d is selected.", m_selectedLightId));
         }
@@ -547,9 +553,9 @@ bool App::handleEvent(const Window::Event& ev)
 
             m_lightSize = m_areaLights[m_selectedLightId]->getSize().x;
 
-            m_lightColorRed = m_areaLights[m_selectedLightId]->getEmission().x;
-            m_lightColorGreen = m_areaLights[m_selectedLightId]->getEmission().y;
-            m_lightColorBlue = m_areaLights[m_selectedLightId]->getEmission().z;
+            m_lightColorRed = (int)m_areaLights[m_selectedLightId]->getEmission().x % 256;
+            m_lightColorGreen = (int)m_areaLights[m_selectedLightId]->getEmission().y % 256;
+            m_lightColorBlue = (int)m_areaLights[m_selectedLightId]->getEmission().z % 256;
 
             m_commonCtrl.message(FW::sprintf("Light %d is selected.", m_selectedLightId));
         }
