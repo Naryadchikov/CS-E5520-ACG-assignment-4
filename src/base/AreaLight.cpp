@@ -40,20 +40,22 @@ namespace FW
         glEnd();
     }
 
-    void AreaLight::sample(float& pdf, Vec3f& p, int base, Random& rnd)
+    void AreaLight::sample(float& pdf, Vec3f& p, int base, Random& R)
     {
-        Vec4f rndPoint = Vec4f(rnd.getVec2f(), 0.f, 1.f);
+        Vec4f rndPoint = Vec4f(R.getVec2f(), 0.f, 1.f);
         Mat4f S = Mat4f::scale(Vec3f(m_size, 1.f));
 
         p = (m_xform * S * rndPoint).getXYZ();
         pdf = 1.f / (4.f * m_size.x * m_size.y);
     }
 
-    void AreaLight::sample(float& pdf, Vec3f& p, int base, int bounce, Random& rnd)
+    void AreaLight::sample(float& pdf, Vec3f& p, int base, int bounce, Random& R)
     {
-        int r = rnd.getU32(1, 10000);
-        float x = (2.f * sobol::sample(base + r, bounce + 4) - 1.f) * m_size.x;
-        float y = (2.f * sobol::sample(base + r, bounce + 5) - 1.f) * m_size.y;
+        int rnd = R.getU32(1, 10000);
+
+        // low discrepancy sampling with Sobol sequence
+        float x = (2.f * sobol::sample(base + rnd, bounce + 4) - 1.f) * m_size.x;
+        float y = (2.f * sobol::sample(base + rnd, bounce + 5) - 1.f) * m_size.y;
 
         p = x * Vec4f(m_xform.getCol(0)).getXYZ() +
             y * Vec4f(m_xform.getCol(1)).getXYZ() +

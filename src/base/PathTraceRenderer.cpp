@@ -237,7 +237,8 @@ namespace FW
                 {
                     T = throughput;
 
-                    Ei += T * pathIteration(ctx, R, result, samplerBase, bounce, Rd, n, throughput) / m_terminationProb;
+                    Ei += T * pathIteration(ctx, R, result, samplerBase, bounce, Rd, n, throughput) /
+                        (1.f - m_terminationProb);
 
                     // Update ray origin for next iteration
                     Ro = result.point;
@@ -316,23 +317,28 @@ namespace FW
             Ei += cosThetaL * cosTheta / FW::max(pdf * distance * distance, 1e-7f) * lightEmission * color;
         }
 
-        /* Cosine weighted direction */
+        /* Sampling of a cosine-weighted hemisphere */
         // 1st bounce draws from 3rd and 4th dimensions
         // 2nd bounce gets dimensions 5th and 6th
         // and so on
-        Vec2f rv;
-        int r = R.getU32(1, 10000);
-        rv.x = 2.f * sobol::sample(samplerBase + r, bounce + 3) - 1.f;
-        rv.y = 2.f * sobol::sample(samplerBase + r, bounce + 4) - 1.f;
+        int rnd = R.getU32(1, 10000);
 
-        float sqrtX = FW::sqrt(rv.x);
-        float theta = 2.f * FW_PI * rv.y;
-        Vec3f cwd = formBasis(n) * Vec3f(sqrtX * FW::cos(theta),
-                                         sqrtX * FW::sin(theta),
-                                         FW::sqrt(FW::max(0.f, 1.f - rv.x)));
+        // low discrepancy sampling with Sobol sequence
+        float rs1 = sobol::sample(samplerBase + rnd, bounce + 3);
+        float rs2 = sobol::sample(samplerBase + rnd, bounce + 4);
 
-        // Update ray direction for next iteration
+        float r = FW::sqrt(rs1);
+        float theta = 2.f * FW_PI * rs2;
+        Vec3f cwd = formBasis(n) * Vec3f(r * FW::cos(theta),
+                                         r * FW::sin(theta),
+                                         FW::sqrt(FW::max(0.f, 1.f - rs1)));
+
+        // Update ray direction for next iteration - Diffuse BRDF case
         Rd = (*ctx.m_camera).getFar() * cwd;
+
+        // TODO: Handle Specular BRDF properly (compute right direction)
+
+        // TODO: Handle Refractive BSDF
 
         return Ei;
     }

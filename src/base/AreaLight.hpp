@@ -26,9 +26,9 @@ namespace FW
 
         // this function draws samples on the light source for computing direct illumination
         // the "base" input can be used for driving QMC samplers; unless you do something to it yourself, has no effect.
-        void sample(float& pdf, Vec3f& p, int base, Random& rnd);
+        void sample(float& pdf, Vec3f& p, int base, Random& R);
 
-        void sample(float& pdf, Vec3f& p, int base, int bounce, Random& rnd);
+        void sample(float& pdf, Vec3f& p, int base, int bounce, Random& R);
 
         Vec3f getPosition(void) const { return Vec4f(m_xform.getCol(3)).getXYZ(); }
 
