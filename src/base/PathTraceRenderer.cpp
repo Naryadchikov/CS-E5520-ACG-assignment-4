@@ -16,9 +16,14 @@ namespace FW
     float PathTraceRenderer::m_terminationProb = 0.2f;
     bool PathTraceRenderer::m_enableEmittingTriangles = false;
     bool PathTraceRenderer::m_enableReflectionsAndRefractions = false;
-    bool PathTraceRenderer::m_useCWDForRefRays = false;
     int PathTraceRenderer::m_AARaysNumber = 4;
     float PathTraceRenderer::m_GaussFilterWidth = 1.f;
+
+    // should be false when I make reflections work in a proper way
+    bool PathTraceRenderer::experimental_bPureRef = true;
+
+    // should be false when I start to handle throughput properly
+    bool PathTraceRenderer::experimental_bOnlyDiffuseThroughput = true;
 
     void PathTraceRenderer::getTextureParameters(const RaycastResult& hit, Vec3f& diffuse, Vec3f& n, Vec3f& specular)
     {
@@ -186,37 +191,32 @@ namespace FW
 
             if (result.tri != nullptr)
             {
-                if (bounce == 0)
+                if (m_enableEmittingTriangles && bounce == 0 && result.tri->m_material->emission.length() > 0.f)
                 {
-                    Rd = result.dir;
-
-                    if (m_enableEmittingTriangles && result.tri->m_material->emission.length() > 0.f)
-                    {
-                        Ei = result.tri->m_material->emission;
-                    }
+                    Ei += result.tri->m_material->emission;
                 }
 
                 T = throughput;
 
-                Ei += T * pathIteration(ctx, R, result, samplerBase, bounce, Rd, n, throughput);
+                Ei += T * pathIteration(ctx, R, result, samplerBase, bounce, Rd, n, throughput, visualization);
 
                 // Update ray origin for next iteration
                 Ro = result.point;
 
                 if (debugVis)
                 {
-                    // Example code for using the visualization system. You can expand this to include further bounces, 
-                    // shadow rays, and whatever other useful information you can think of.
                     PathVisualizationNode node;
+
+                    // ray
                     node.lines.push_back(PathVisualizationLine(result.orig, result.point));
-                    // Draws a line between two points
+
+                    // hit normal
                     node.lines.push_back(PathVisualizationLine(result.point, result.point + result.tri->normal() * .1f,
                                                                Vec3f(1, 0, 0)));
-                    // You can give lines a color as optional parameter.
+
                     node.labels.push_back(PathVisualizationLabel(
-                        "diffuse: " + std::to_string(Ei.x) + ", " + std::to_string(Ei.y) + ", " + std::to_string(
-                            Ei.z),
-                        result.point)); // You can also render text labels with world-space locations.
+                        "Ei: " + std::to_string(Ei.x) + ", " + std::to_string(Ei.y) + ", " +
+                        std::to_string(Ei.z), result.point));
 
                     visualization.push_back(node);
                 }
@@ -239,13 +239,32 @@ namespace FW
                 {
                     T = throughput;
 
-                    Ei += T * pathIteration(ctx, R, result, samplerBase, bounce, Rd, n, throughput) /
+                    Ei += T * pathIteration(ctx, R, result, samplerBase, bounce, Rd, n, throughput, visualization) /
                         (1.f - m_terminationProb);
 
                     // Update ray origin for next iteration
                     Ro = result.point;
 
                     ++bounce;
+
+                    if (debugVis)
+                    {
+                        PathVisualizationNode node;
+
+                        // ray
+                        node.lines.push_back(PathVisualizationLine(result.orig, result.point, Vec3f(0, 0, 1)));
+
+                        // hit normal
+                        node.lines.push_back(PathVisualizationLine(result.point,
+                                                                   result.point + result.tri->normal() * .1f,
+                                                                   Vec3f(1, 0, 0)));
+
+                        node.labels.push_back(PathVisualizationLabel(
+                            "Ei: " + std::to_string(Ei.x) + ", " + std::to_string(Ei.y) + ", " +
+                            std::to_string(Ei.z), result.point));
+
+                        visualization.push_back(node);
+                    }
                 }
                 else
                 {
@@ -254,13 +273,12 @@ namespace FW
             }
         }
 
-        Ei *= 1.f / FW_PI;
-
         return Ei;
     }
 
     Vec3f PathTraceRenderer::pathIteration(PathTracerContext& ctx, Random& R, const RaycastResult result,
-                                           int samplerBase, int bounce, Vec3f& Rd, Vec3f& n, Vec3f& throughput)
+                                           int samplerBase, int bounce, Vec3f& Rd, Vec3f& n, Vec3f& throughput,
+                                           std::vector<PathVisualizationNode>& visualization)
     {
         Vec3f diffuse;
         Vec3f specular;
@@ -275,7 +293,8 @@ namespace FW
         {
             n = -n; // flip normal
 
-            if (m_enableReflectionsAndRefractions)
+            // Code for refractions to revisit
+            if (m_enableReflectionsAndRefractions && experimental_bPureRef)
             {
                 // we're inside the medium
                 ri = ri != 0.f
@@ -284,7 +303,8 @@ namespace FW
             }
         }
 
-        if (m_enableReflectionsAndRefractions)
+        // Code for refractions to revisit
+        if (m_enableReflectionsAndRefractions && experimental_bPureRef)
         {
             ri = ri != 0.f
                      ? 1.f / ri
@@ -292,16 +312,19 @@ namespace FW
         }
 
         Vec3f Ei(0.f);
-        float pdf;
+        float pdf_light;
         Vec3f Pl;
         Vec3f lightNormal;
         Vec3f lightEmission;
 
-        chooseAndSampleLight(ctx, samplerBase, bounce, pdf, Pl, lightNormal, lightEmission, R, result);
+        chooseAndSampleLight(ctx, samplerBase, bounce, pdf_light, Pl, lightNormal, lightEmission, R, result);
 
         // construct vector from current vertex (o) to light sample
         Vec3f o = result.point;
         Vec3f d = Pl - o;
+
+        Vec3f ref_dir(0.f);
+        float pdf_rayDirection = 1.f;
 
         // trace shadow ray to see if it's blocked
         if (!ctx.m_rt->raycast(o + 0.001f * n, 0.998f * d))
@@ -330,16 +353,33 @@ namespace FW
 
                 // adding specular part to diffuse one
                 color += FW::pow(FW::max(0.f, nDotH), glossiness) * normFactor * specular;
+
+                // computing reflection direction (sampling half vector?)
+                ref_dir = -rd + 2 * FW::abs(FW::dot(rd, H)) * H; // is it right???
+                pdf_rayDirection = pdf_light; // is it right???
             }
 
-            Ei = cosThetaL * cosTheta / FW::max(pdf * distance * distance, 1e-7f) * lightEmission * color;
+            Ei = cosThetaL * cosTheta / FW::max(FW_PI * pdf_light * distance * distance, 1e-7f) * lightEmission * color;
+
+            if (debugVis)
+            {
+                PathVisualizationNode node;
+
+                // shadow ray
+                node.lines.push_back(PathVisualizationLine(o, Pl, Vec3f(1, 1, 0)));
+
+                // light normal
+                node.lines.push_back(PathVisualizationLine(Pl, Pl + lightNormal * .1f,
+                                                           Vec3f(1, 0, 0)));
+
+                visualization.push_back(node);
+            }
         }
 
         int rnd = R.getU32(1, 10000);
-        Vec3f cwd(0.f);
-        float theta = 0.f;
 
-        if (!m_enableReflectionsAndRefractions || specular.length() == 0.f || m_useCWDForRefRays)
+        // Choosing new ray direction for next iteration
+        if (!m_enableReflectionsAndRefractions || specular.length() == 0.f || ref_dir.length() > 0.f)
         {
             /* Sampling of a cosine-weighted hemisphere */
             // 1st bounce draws from 3rd and 4th dimensions
@@ -351,51 +391,64 @@ namespace FW
             float rs2 = sobol::sample(samplerBase + rnd, bounce + 3);
 
             float r = FW::sqrt(rs1);
-            theta = 2.f * FW_PI * rs2;
-            cwd = formBasis(n) * Vec3f(r * FW::cos(theta),
-                                       r * FW::sin(theta),
-                                       FW::sqrt(FW::max(0.f, 1.f - rs1)));
+            float theta = 2.f * FW_PI * rs2;
+            Vec3f cwd = formBasis(n) * Vec3f(r * FW::cos(theta),
+                                             r * FW::sin(theta),
+                                             FW::sqrt(FW::max(0.f, 1.f - rs1)));
 
             // Update ray direction for next iteration - Diffuse BRDF case
             Rd = (*ctx.m_camera).getFar() * cwd;
+
+            // Am I right here?
+            pdf_rayDirection = FW::abs(nDotR) / FW_PI;
         }
 
-        if (m_enableReflectionsAndRefractions && specular.length() > 0.f)
+        if (m_enableReflectionsAndRefractions && specular.length() > 0.f && ref_dir.length() > 0.f)
         {
-            float r0 = (1.f - ri) / (1.f + ri);
-            r0 *= r0;
-
-            float cost1 = -nDotR; // cosine of theta_1
-            float cost2 = 1.f - ri * ri * (1.f - cost1 * cost1); // cosine of theta_2
-            float fresnel = r0 + (1.f - r0) * FW::pow(1.f - cost1, 5.f); // Schlick-approximation
-
-            Vec3f ref;
-            float randProb = sobol::sample(samplerBase + rnd, bounce + 2); // mb use uniform?
-
-            if (cost2 > 0 && randProb > fresnel)
+            // My first implementation, should be revisited when I will start to handle refractions
+            if (experimental_bPureRef)
             {
-                // refraction direction
-                ref = ri * rd + (ri * cost1 - FW::sqrt(cost2)) * n;
-            }
-            else
-            {
-                // reflection direction
-                ref = rd + 2 * FW::abs(nDotR) * n;
-            }
+                float r0 = (1.f - ri) / (1.f + ri);
+                r0 *= r0;
 
-            Ei *= 1.15f;
+                float cost1 = -nDotR; // cosine of theta_1
+                float cost2 = 1.f - ri * ri * (1.f - cost1 * cost1); // cosine of theta_2
+                float fresnel = r0 + (1.f - r0) * FW::pow(1.f - cost1, 5.f); // Schlick-approximation
+
+                float randProb = R.getF32();
+
+                if (cost2 > 0 && randProb > fresnel)
+                {
+                    // refraction direction
+                    ref_dir = ri * rd + (ri * cost1 - FW::sqrt(cost2)) * n;
+                }
+                else
+                {
+                    // reflection direction - perfect mirror!
+                    ref_dir = rd + 2 * FW::abs(nDotR) * n;
+                    pdf_rayDirection = 1;
+                }
+
+                Ei *= 1.15f;
+            }
+            /////////////////////////////////////////////////////////////////////////////
 
             // Update ray direction for next iteration
-            Rd = m_useCWDForRefRays
-                     ? (*ctx.m_camera).getFar() * (ref.normalized() + 0.1f * cwd).normalized()
-                     : Rd = (*ctx.m_camera).getFar() * ref.normalized();
-
-            // throughput *= FW::abs(nDotR) * (diffuse + specular) / probabilityOfChoosingRayDirection;
+            Rd = (*ctx.m_camera).getFar() * ref_dir.normalized();
         }
 
-        // Fully diffuse and cosine-weighted sampling
-        // the end result is: cos * (albedo / pi) / pdf = cos * (albedo / pi) / (cos / pi) = albedo
-        throughput *= diffuse;
+        if (experimental_bOnlyDiffuseThroughput)
+        {
+            // This should be work only for pure diffuse material...
+            throughput *= diffuse;
+        }
+        else
+        {
+            // That one should be in general.
+            // However, it is not working right for me...
+            // It would be really helpful if you can provide feedback, telling what is wrong :)
+            throughput *= FW::abs(nDotR) * (diffuse + specular) / pdf_rayDirection;
+        }
 
         return Ei;
     }

@@ -44,7 +44,6 @@ App::App(std::vector<std::string>& cmd_args)
       m_terminationProb(0.2f),
       m_enableEmittingTriangles(false),
       m_enableReflectionsAndRefractions(false),
-      m_useCWDForRefRays(false),
       m_AARaysNumber(4),
       m_GaussFilterWidth(1.f),
       m_selectedLightIntensity(100.f),
@@ -52,6 +51,8 @@ App::App(std::vector<std::string>& cmd_args)
       m_lightColorRed(57),
       m_lightColorGreen(57),
       m_lightColorBlue(57),
+      experimental_bPureRef(true),
+      experimental_bOnlyDiffuseThroughput(true),
       m_img(Vec2i(10, 10), ImageFormat::RGBA_Vec4f) // will get resized immediately
 {
     m_commonCtrl.showFPS(true);
@@ -112,10 +113,12 @@ App::App(std::vector<std::string>& cmd_args)
     m_commonCtrl.addToggle(&m_enableEmittingTriangles, FW_KEY_NONE, "Sample emissive triangles", &clear_on_next_frame);
     m_commonCtrl.addToggle(&m_enableReflectionsAndRefractions, FW_KEY_NONE, "Use reflection and refraction rays",
                            &clear_on_next_frame);
-    m_commonCtrl.addToggle(&m_useCWDForRefRays, FW_KEY_NONE,
-                           "Use cosine-weighted part for reflected and refracted ray direction change",
-                           &clear_on_next_frame);
     m_commonCtrl.addToggle(&m_playbackVisualization, FW_KEY_NONE, "Visualization playback");
+    m_commonCtrl.addToggle(&experimental_bPureRef, FW_KEY_NONE,
+                           "Ignores sampling half vector for reflection direction, making pure mirror reflection",
+                           &clear_on_next_frame);
+    m_commonCtrl.addToggle(&experimental_bOnlyDiffuseThroughput, FW_KEY_NONE,
+                           "Accounting only diffuse part to throughput", &clear_on_next_frame);
 
     m_commonCtrl.beginSliderStack();
     m_commonCtrl.addSlider(&m_numDebugPathCount, 1, 1000, false, FW_KEY_NONE, FW_KEY_NONE,
@@ -585,9 +588,10 @@ bool App::handleEvent(const Window::Event& ev)
             m_pathtrace_renderer->setTerminationProb(m_terminationProb);
             m_pathtrace_renderer->setEnableEmittingTriangles(m_enableEmittingTriangles);
             m_pathtrace_renderer->setEnableReflectionsAndRefractions(m_enableReflectionsAndRefractions);
-            m_pathtrace_renderer->setUseCWDForRefRays(m_useCWDForRefRays);
             m_pathtrace_renderer->setAARaysNumber(m_AARaysNumber);
             m_pathtrace_renderer->setGaussFilterWidth(m_GaussFilterWidth);
+            m_pathtrace_renderer->setPureRef(experimental_bPureRef);
+            m_pathtrace_renderer->setOnlyDiffuseThroughput(experimental_bOnlyDiffuseThroughput);
 
             m_pathtrace_renderer->startPathTracingProcess(m_mesh.get(), m_areaLights, m_rt.get(), &m_img,
                                                           m_useRussianRoulette ? -m_numBounces : m_numBounces,
@@ -607,15 +611,20 @@ bool App::handleEvent(const Window::Event& ev)
     {
         if (ev.key == FW_KEY_CONTROL)
         {
-            Vec2i pos = ev.mousePos;
+            Vec2f pos = m_window.getMousePos();
+
+            pos.x = 2.f * pos.x / m_window.getSize().x - 1.f;
+            pos.y = -2.f * pos.y / m_window.getSize().y + 1.f;
+
             m_pathtrace_renderer->stop();
             m_visualization.clear();
             m_pathtrace_renderer->debugVis = true;
 
             Random rnd;
+            int rndBase = rnd.getU32(1, 10000);
 
             for (int i = 0; i < m_numDebugPathCount; ++i)
-                m_pathtrace_renderer->tracePath(pos.x, pos.y, m_pathtrace_renderer->m_context, -1, rnd,
+                m_pathtrace_renderer->tracePath(pos.x, pos.y, m_pathtrace_renderer->m_context, rndBase, rnd,
                                                 m_visualization);
 
             m_pathtrace_renderer->debugVis = false;
@@ -623,12 +632,13 @@ bool App::handleEvent(const Window::Event& ev)
         }
     }
 
-
     m_window.setVisible(true);
 
     if (ev.type == Window::EventType_Paint)
         renderFrame(m_window.getGL());
+
     m_window.repaint();
+
     return false;
 }
 
@@ -719,9 +729,10 @@ void App::renderFrame(GLContext* gl)
         m_pathtrace_renderer->setTerminationProb(m_terminationProb);
         m_pathtrace_renderer->setEnableEmittingTriangles(m_enableEmittingTriangles);
         m_pathtrace_renderer->setEnableReflectionsAndRefractions(m_enableReflectionsAndRefractions);
-        m_pathtrace_renderer->setUseCWDForRefRays(m_useCWDForRefRays);
         m_pathtrace_renderer->setAARaysNumber(m_AARaysNumber);
         m_pathtrace_renderer->setGaussFilterWidth(m_GaussFilterWidth);
+        m_pathtrace_renderer->setPureRef(experimental_bPureRef);
+        m_pathtrace_renderer->setOnlyDiffuseThroughput(experimental_bOnlyDiffuseThroughput);
 
         m_pathtrace_renderer->startPathTracingProcess(m_mesh.get(), m_areaLights, m_rt.get(), &m_img,
                                                       m_useRussianRoulette ? -m_numBounces : m_numBounces,
@@ -790,7 +801,9 @@ void App::renderFrame(GLContext* gl)
 
     if (m_clearVisualization)
         m_visualization.clear();
+
     m_clearVisualization = false;
+
     if (m_visualization.size() > 0)
     {
         glPushAttrib(GL_ALL_ATTRIB_BITS);
@@ -841,8 +854,8 @@ void App::renderFrame(GLContext* gl)
 
         glPopAttrib();
     }
-    // Display status line.
 
+    // Display status line.
     m_commonCtrl.message(sprintf("Triangles = %d, vertices = %d, materials = %d",
                                  m_mesh->numTriangles(),
                                  m_mesh->numVertices(),

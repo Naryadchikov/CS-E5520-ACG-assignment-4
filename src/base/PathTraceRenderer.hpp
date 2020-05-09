@@ -125,7 +125,8 @@ namespace FW
                                std::vector<PathVisualizationNode>& visualization);
 
         static Vec3f pathIteration(PathTracerContext& ctx, Random& R, const RaycastResult result, int samplerBase,
-                                   int bounce, Vec3f& Rd, Vec3f& n, Vec3f& throughput);
+                                   int bounce, Vec3f& Rd, Vec3f& n, Vec3f& throughput,
+                                   std::vector<PathVisualizationNode>& visualization);
 
         static void chooseAndSampleLight(PathTracerContext& ctx, int samplerBase, int bounce, float& pdf, Vec3f& Pl,
                                          Vec3f& lightNormal, Vec3f& lightEmission, Random& R,
@@ -153,11 +154,13 @@ namespace FW
 
         void setEnableReflectionsAndRefractions(bool b) { m_enableReflectionsAndRefractions = b; }
 
-        void setUseCWDForRefRays(bool b) { m_useCWDForRefRays = b; }
-
         void setAARaysNumber(int value) { m_AARaysNumber = value; }
 
         void setGaussFilterWidth(float value) { m_GaussFilterWidth = value; }
+
+        void setPureRef(bool b) { experimental_bPureRef = b; }
+
+        void setOnlyDiffuseThroughput(bool b) { experimental_bOnlyDiffuseThroughput = b; }
 
     protected:
 
@@ -179,13 +182,16 @@ namespace FW
         // whether or not change ray direction according to reflections and refractions rules
         static bool m_enableReflectionsAndRefractions;
 
-        // whether or not account cosine-weighted part for ray direction change for reflections and refractions
-        static bool m_useCWDForRefRays;
-
         // number of rays per pixel for Anti-Aliasing
         static int m_AARaysNumber;
 
         // Gauss filter width
         static float m_GaussFilterWidth;
+
+        // if true - ignores sampling half vector for reflection direction, making pure mirror reflection
+        static bool experimental_bPureRef;
+
+        // if true - accounting only diffuse part to throughput
+        static bool experimental_bOnlyDiffuseThroughput;
     };
 } // namespace FW

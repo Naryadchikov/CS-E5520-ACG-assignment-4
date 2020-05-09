@@ -179,14 +179,17 @@ namespace FW
         // whether or not change ray direction according to reflections and refractions rules
         bool m_enableReflectionsAndRefractions;
 
-        // whether or not account cosine-weighted part for ray direction change for reflections and refractions
-        bool m_useCWDForRefRays;
-
         // number of rays per pixel for Anti-Aliasing
         int m_AARaysNumber;
 
         // Gauss filter width
         float m_GaussFilterWidth;
+
+        // if true - ignores sampling half vector for reflection direction, making pure mirror reflection
+        bool experimental_bPureRef;
+
+        // if true - accounting only diffuse part to throughput
+        bool experimental_bOnlyDiffuseThroughput;
 
         bool clear_on_next_frame = false;
         Mat4f previous_camera = Mat4f(0);
