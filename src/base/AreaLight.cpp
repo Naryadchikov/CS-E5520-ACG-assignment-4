@@ -54,13 +54,13 @@ namespace FW
         int rnd = R.getU32(1, 10000);
 
         // low discrepancy sampling with Sobol sequence
-        float x = (2.f * sobol::sample(base + rnd, bounce + 4) - 1.f) * m_size.x;
-        float y = (2.f * sobol::sample(base + rnd, bounce + 5) - 1.f) * m_size.y;
+        float x = sobol::sample(base + rnd, bounce + 2);
+        float y = sobol::sample(base + rnd, bounce + 3);
 
-        p = x * Vec4f(m_xform.getCol(0)).getXYZ() +
-            y * Vec4f(m_xform.getCol(1)).getXYZ() +
-            Vec4f(m_xform.getCol(3)).getXYZ();
+        Vec4f rndPoint = Vec4f(x, y, 0.f, 1.f);
+        Mat4f S = Mat4f::scale(Vec3f(m_size, 1.f));
 
+        p = (m_xform * S * rndPoint).getXYZ();
         pdf = 1.f / (4.f * m_size.x * m_size.y);
     }
 } // namespace FW

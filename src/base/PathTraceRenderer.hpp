@@ -151,6 +151,10 @@ namespace FW
 
         void setEnableEmittingTriangles(bool b) { m_enableEmittingTriangles = b; }
 
+        void setEnableReflectionsAndRefractions(bool b) { m_enableReflectionsAndRefractions = b; }
+
+        void setUseCWDForRefRays(bool b) { m_useCWDForRefRays = b; }
+
         void setAARaysNumber(int value) { m_AARaysNumber = value; }
 
         void setGaussFilterWidth(float value) { m_GaussFilterWidth = value; }
@@ -171,6 +175,12 @@ namespace FW
 
         // whether or not sampling light-emitting triangles
         static bool m_enableEmittingTriangles;
+
+        // whether or not change ray direction according to reflections and refractions rules
+        static bool m_enableReflectionsAndRefractions;
+
+        // whether or not account cosine-weighted part for ray direction change for reflections and refractions
+        static bool m_useCWDForRefRays;
 
         // number of rays per pixel for Anti-Aliasing
         static int m_AARaysNumber;

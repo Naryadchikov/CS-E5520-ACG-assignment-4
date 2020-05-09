@@ -19,7 +19,7 @@ namespace FW
         {
         }
 
-        AreaLight(float R, float G, float B, float intensity) : m_size(0.25f, 0.25f)
+        AreaLight(float R, float G, float B, float intensity) : m_size(0.1f, 0.1f)
         {
             m_E = intensity * Vec3f(R, G, B).normalized();
         }

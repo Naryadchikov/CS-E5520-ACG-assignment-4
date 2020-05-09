@@ -43,6 +43,8 @@ App::App(std::vector<std::string>& cmd_args)
       m_normalMapped(false),
       m_terminationProb(0.2f),
       m_enableEmittingTriangles(false),
+      m_enableReflectionsAndRefractions(false),
+      m_useCWDForRefRays(false),
       m_AARaysNumber(4),
       m_GaussFilterWidth(1.f),
       m_selectedLightIntensity(100.f),
@@ -107,8 +109,13 @@ App::App(std::vector<std::string>& cmd_args)
 
     m_commonCtrl.addToggle(&m_useRussianRoulette, FW_KEY_NONE, "Use Russian Roulette", &clear_on_next_frame);
     m_commonCtrl.addToggle(&m_normalMapped, FW_KEY_NONE, "Use normal mapping", &clear_on_next_frame);
-    m_commonCtrl.addToggle(&m_playbackVisualization, FW_KEY_NONE, "Visualization playback");
     m_commonCtrl.addToggle(&m_enableEmittingTriangles, FW_KEY_NONE, "Sample emissive triangles", &clear_on_next_frame);
+    m_commonCtrl.addToggle(&m_enableReflectionsAndRefractions, FW_KEY_NONE, "Use reflection and refraction rays",
+                           &clear_on_next_frame);
+    m_commonCtrl.addToggle(&m_useCWDForRefRays, FW_KEY_NONE,
+                           "Use cosine-weighted part for reflected and refracted ray direction change",
+                           &clear_on_next_frame);
+    m_commonCtrl.addToggle(&m_playbackVisualization, FW_KEY_NONE, "Visualization playback");
 
     m_commonCtrl.beginSliderStack();
     m_commonCtrl.addSlider(&m_numDebugPathCount, 1, 1000, false, FW_KEY_NONE, FW_KEY_NONE,
@@ -139,7 +146,7 @@ App::App(std::vector<std::string>& cmd_args)
     m_commonCtrl.endSliderStack();
 
     m_commonCtrl.beginSliderStack();
-    m_commonCtrl.addSlider(&m_lightSize, 0.01f, 100.0f, false, FW_KEY_NONE, FW_KEY_NONE, "Light source area= %f", 0,
+    m_commonCtrl.addSlider(&m_lightSize, 0.01f, 50.0f, false, FW_KEY_NONE, FW_KEY_NONE, "Light source area= %f", 0,
                            &clear_on_next_frame);
     m_commonCtrl.addSlider(&m_selectedLightIntensity, 0.f, 1000.0f, false, FW_KEY_NONE, FW_KEY_NONE,
                            "Light Intensity= %f", 0, &clear_on_next_frame);
@@ -577,6 +584,8 @@ bool App::handleEvent(const Window::Event& ev)
             m_pathtrace_renderer->setNormalMapped(m_normalMapped);
             m_pathtrace_renderer->setTerminationProb(m_terminationProb);
             m_pathtrace_renderer->setEnableEmittingTriangles(m_enableEmittingTriangles);
+            m_pathtrace_renderer->setEnableReflectionsAndRefractions(m_enableReflectionsAndRefractions);
+            m_pathtrace_renderer->setUseCWDForRefRays(m_useCWDForRefRays);
             m_pathtrace_renderer->setAARaysNumber(m_AARaysNumber);
             m_pathtrace_renderer->setGaussFilterWidth(m_GaussFilterWidth);
 
@@ -709,6 +718,8 @@ void App::renderFrame(GLContext* gl)
         m_pathtrace_renderer->setNormalMapped(m_normalMapped);
         m_pathtrace_renderer->setTerminationProb(m_terminationProb);
         m_pathtrace_renderer->setEnableEmittingTriangles(m_enableEmittingTriangles);
+        m_pathtrace_renderer->setEnableReflectionsAndRefractions(m_enableReflectionsAndRefractions);
+        m_pathtrace_renderer->setUseCWDForRefRays(m_useCWDForRefRays);
         m_pathtrace_renderer->setAARaysNumber(m_AARaysNumber);
         m_pathtrace_renderer->setGaussFilterWidth(m_GaussFilterWidth);
 

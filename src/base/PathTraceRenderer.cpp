@@ -15,6 +15,8 @@ namespace FW
     bool PathTraceRenderer::debugVis = false;
     float PathTraceRenderer::m_terminationProb = 0.2f;
     bool PathTraceRenderer::m_enableEmittingTriangles = false;
+    bool PathTraceRenderer::m_enableReflectionsAndRefractions = false;
+    bool PathTraceRenderer::m_useCWDForRefRays = false;
     int PathTraceRenderer::m_AARaysNumber = 4;
     float PathTraceRenderer::m_GaussFilterWidth = 1.f;
 
@@ -265,15 +267,31 @@ namespace FW
 
         getTextureParameters(result, diffuse, n, specular);
 
-        throughput *= diffuse;
+        Vec3f rd = Rd.normalized(); // normalized ray direction
+        float nDotR = FW::dot(rd, n);
+        float ri = result.tri->m_material->indexOfRefraction;
 
-        if (FW::dot(Rd, n) > 0.f)
+        if (nDotR > 0.f)
         {
             n = -n; // flip normal
+
+            if (m_enableReflectionsAndRefractions)
+            {
+                // we're inside the medium
+                ri = ri != 0.f
+                         ? 1.f / ri
+                         : 0.f;
+            }
+        }
+
+        if (m_enableReflectionsAndRefractions)
+        {
+            ri = ri != 0.f
+                     ? 1.f / ri
+                     : 0.f;
         }
 
         Vec3f Ei(0.f);
-
         float pdf;
         Vec3f Pl;
         Vec3f lightNormal;
@@ -305,7 +323,7 @@ namespace FW
                 float normFactor = (glossiness + 2.f) / (4.f * FW_PI * (2.f - pow(2.f, -glossiness / 2.f)));
 
                 // Calculate the half vector between the light vector and the view vector
-                Vec3f H = (unionD - Rd.normalized()).normalized();
+                Vec3f H = (unionD - rd).normalized();
 
                 // Intensity of the specular light
                 float nDotH = FW::dot(n, H);
@@ -314,31 +332,70 @@ namespace FW
                 color += FW::pow(FW::max(0.f, nDotH), glossiness) * normFactor * specular;
             }
 
-            Ei += cosThetaL * cosTheta / FW::max(pdf * distance * distance, 1e-7f) * lightEmission * color;
+            Ei = cosThetaL * cosTheta / FW::max(pdf * distance * distance, 1e-7f) * lightEmission * color;
         }
 
-        /* Sampling of a cosine-weighted hemisphere */
-        // 1st bounce draws from 3rd and 4th dimensions
-        // 2nd bounce gets dimensions 5th and 6th
-        // and so on
         int rnd = R.getU32(1, 10000);
+        Vec3f cwd(0.f);
+        float theta = 0.f;
 
-        // low discrepancy sampling with Sobol sequence
-        float rs1 = sobol::sample(samplerBase + rnd, bounce + 3);
-        float rs2 = sobol::sample(samplerBase + rnd, bounce + 4);
+        if (!m_enableReflectionsAndRefractions || specular.length() == 0.f || m_useCWDForRefRays)
+        {
+            /* Sampling of a cosine-weighted hemisphere */
+            // 1st bounce draws from 3rd and 4th dimensions
+            // 2nd bounce gets dimensions 5th and 6th
+            // and so on
 
-        float r = FW::sqrt(rs1);
-        float theta = 2.f * FW_PI * rs2;
-        Vec3f cwd = formBasis(n) * Vec3f(r * FW::cos(theta),
-                                         r * FW::sin(theta),
-                                         FW::sqrt(FW::max(0.f, 1.f - rs1)));
+            // low discrepancy sampling with Sobol sequence
+            float rs1 = sobol::sample(samplerBase + rnd, bounce + 2);
+            float rs2 = sobol::sample(samplerBase + rnd, bounce + 3);
 
-        // Update ray direction for next iteration - Diffuse BRDF case
-        Rd = (*ctx.m_camera).getFar() * cwd;
+            float r = FW::sqrt(rs1);
+            theta = 2.f * FW_PI * rs2;
+            cwd = formBasis(n) * Vec3f(r * FW::cos(theta),
+                                       r * FW::sin(theta),
+                                       FW::sqrt(FW::max(0.f, 1.f - rs1)));
 
-        // TODO: Handle Specular BRDF properly (compute right direction)
+            // Update ray direction for next iteration - Diffuse BRDF case
+            Rd = (*ctx.m_camera).getFar() * cwd;
+        }
 
-        // TODO: Handle Refractive BSDF
+        if (m_enableReflectionsAndRefractions && specular.length() > 0.f)
+        {
+            float r0 = (1.f - ri) / (1.f + ri);
+            r0 *= r0;
+
+            float cost1 = -nDotR; // cosine of theta_1
+            float cost2 = 1.f - ri * ri * (1.f - cost1 * cost1); // cosine of theta_2
+            float fresnel = r0 + (1.f - r0) * FW::pow(1.f - cost1, 5.f); // Schlick-approximation
+
+            Vec3f ref;
+            float randProb = sobol::sample(samplerBase + rnd, bounce + 2); // mb use uniform?
+
+            if (cost2 > 0 && randProb > fresnel)
+            {
+                // refraction direction
+                ref = ri * rd + (ri * cost1 - FW::sqrt(cost2)) * n;
+            }
+            else
+            {
+                // reflection direction
+                ref = rd + 2 * FW::abs(nDotR) * n;
+            }
+
+            Ei *= 1.15f;
+
+            // Update ray direction for next iteration
+            Rd = m_useCWDForRefRays
+                     ? (*ctx.m_camera).getFar() * (ref.normalized() + 0.1f * cwd).normalized()
+                     : Rd = (*ctx.m_camera).getFar() * ref.normalized();
+
+            // throughput *= FW::abs(nDotR) * (diffuse + specular) / probabilityOfChoosingRayDirection;
+        }
+
+        // Fully diffuse and cosine-weighted sampling
+        // the end result is: cos * (albedo / pi) / pdf = cos * (albedo / pi) / (cos / pi) = albedo
+        throughput *= diffuse;
 
         return Ei;
     }
@@ -489,11 +546,13 @@ namespace FW
             for (int j = 0; j < m_AARaysNumber; ++j)
             {
                 // AA samples (1st and 2nd dimension)
-                float rs1 = m_GaussFilterWidth * (sobol::sample(base + i + j, 1) - 0.5f) + 0.5f;
-                float rs2 = m_GaussFilterWidth * (sobol::sample(base + i + j, 2) - 0.5f) + 0.5f;
-                float xr = (float)pixel_x + rs1;
-                float yr = (float)pixel_y + rs2;
+                float rs1 = sobol::sample(base + i + j, 0) - 0.5f;
+                float rs2 = sobol::sample(base + i + j, 1) - 0.5f;
 
+                float xr = (float)pixel_x + m_GaussFilterWidth * rs1;
+                float yr = (float)pixel_y + m_GaussFilterWidth * rs2;
+
+                // checking for missing the image size
                 if (xr < 0.f)
                 {
                     xr = -xr;
@@ -517,10 +576,7 @@ namespace FW
 
                 Vec3f Ei = tracePath(x, y, ctx, base + i, R, dummyVisualization);
 
-                color += filterGauss(
-                    2.f * (rs1 - 0.5f) / m_GaussFilterWidth,
-                    2.f * (rs2 - 0.5f) / m_GaussFilterWidth
-                ) * Vec4f(Ei, 1.f);
+                color += filterGauss(2.f * rs1, 2.f * rs2) * Vec4f(Ei, 1.f);
             }
 
             color /= color.w;

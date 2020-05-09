@@ -176,6 +176,12 @@ namespace FW
         // whether or not sampling light-emitting triangles
         bool m_enableEmittingTriangles;
 
+        // whether or not change ray direction according to reflections and refractions rules
+        bool m_enableReflectionsAndRefractions;
+
+        // whether or not account cosine-weighted part for ray direction change for reflections and refractions
+        bool m_useCWDForRefRays;
+
         // number of rays per pixel for Anti-Aliasing
         int m_AARaysNumber;
 
