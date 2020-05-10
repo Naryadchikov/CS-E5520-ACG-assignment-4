@@ -46,7 +46,7 @@ App::App(std::vector<std::string>& cmd_args)
       m_enableReflectionsAndRefractions(false),
       m_AARaysNumber(4),
       m_GaussFilterWidth(1.f),
-      m_selectedLightIntensity(100.f),
+      m_selectedLightIntensity(173.f),
       m_selectedLightId(0),
       m_lightColorRed(57),
       m_lightColorGreen(57),
@@ -499,7 +499,7 @@ bool App::handleEvent(const Window::Event& ev)
             m_pathtrace_renderer->stop();
             m_RTMode = false;
 
-            float newLightIntensity = 100.f;
+            float newLightIntensity = 173.f;
             AreaLight* newLight = new AreaLight(255.f, 255.f, 255.f, newLightIntensity);
 
             newLight->setOrientation(m_cameraCtrl.getCameraToWorld().getXYZ());
