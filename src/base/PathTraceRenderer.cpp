@@ -293,8 +293,7 @@ namespace FW
         {
             n = -n; // flip normal
 
-            // Code for refractions to revisit
-            if (m_enableReflectionsAndRefractions && experimental_bPureRef)
+            if (m_enableReflectionsAndRefractions)
             {
                 // we're inside the medium
                 ri = ri != 0.f
@@ -303,8 +302,7 @@ namespace FW
             }
         }
 
-        // Code for refractions to revisit
-        if (m_enableReflectionsAndRefractions && experimental_bPureRef)
+        if (m_enableReflectionsAndRefractions)
         {
             ri = ri != 0.f
                      ? 1.f / ri
@@ -354,9 +352,10 @@ namespace FW
                 // adding specular part to diffuse one
                 color += FW::pow(FW::max(0.f, nDotH), glossiness) * normFactor * specular;
 
-                // computing reflection direction (sampling half vector?)
-                ref_dir = -rd + 2 * FW::abs(FW::dot(rd, H)) * H; // is it right???
-                pdf_rayDirection = pdf_light; // is it right???
+                // is it right???
+                // computing reflection direction with half vector
+                //ref_dir = rd + 2 * FW::abs(FW::dot(rd, H)) * H;
+                //pdf_rayDirection = 1;
             }
 
             Ei = cosThetaL * cosTheta / FW::max(FW_PI * pdf_light * distance * distance, 1e-7f) * lightEmission * color;
@@ -378,63 +377,73 @@ namespace FW
 
         int rnd = R.getU32(1, 10000);
 
-        // Choosing new ray direction for next iteration
-        if (!m_enableReflectionsAndRefractions || specular.length() == 0.f || ref_dir.length() > 0.f)
+        /* Sampling of a cosine-weighted hemisphere */
+        // 1st bounce draws from 3rd and 4th dimensions
+        // 2nd bounce gets dimensions 5th and 6th
+        // and so on
+
+        // low discrepancy sampling with Sobol sequence
+        float rs1 = sobol::sample(samplerBase + rnd, bounce + 2);
+        float rs2 = sobol::sample(samplerBase + rnd, bounce + 3);
+
+        float r = FW::sqrt(rs1);
+        float theta = 2.f * FW_PI * rs2;
+        Vec3f cwd = Vec3f(r * FW::cos(theta),
+                          r * FW::sin(theta),
+                          FW::sqrt(FW::max(0.f, 1.f - rs1)));
+
+        /* Choosing new ray direction for next iteration */
+        // Diffuse BRDF case
+        if (!m_enableReflectionsAndRefractions || specular.length() == 0.f)
         {
-            /* Sampling of a cosine-weighted hemisphere */
-            // 1st bounce draws from 3rd and 4th dimensions
-            // 2nd bounce gets dimensions 5th and 6th
-            // and so on
-
-            // low discrepancy sampling with Sobol sequence
-            float rs1 = sobol::sample(samplerBase + rnd, bounce + 2);
-            float rs2 = sobol::sample(samplerBase + rnd, bounce + 3);
-
-            float r = FW::sqrt(rs1);
-            float theta = 2.f * FW_PI * rs2;
-            Vec3f cwd = formBasis(n) * Vec3f(r * FW::cos(theta),
-                                             r * FW::sin(theta),
-                                             FW::sqrt(FW::max(0.f, 1.f - rs1)));
-
-            // Update ray direction for next iteration - Diffuse BRDF case
-            Rd = (*ctx.m_camera).getFar() * cwd;
+            // Update ray direction for next iteration
+            Rd = (*ctx.m_camera).getFar() * (formBasis(n) * cwd);
 
             // Am I right here?
             pdf_rayDirection = FW::abs(nDotR) / FW_PI;
         }
-
-        if (m_enableReflectionsAndRefractions && specular.length() > 0.f && ref_dir.length() > 0.f)
+        else
         {
-            // My first implementation, should be revisited when I will start to handle refractions
+            float r0 = (1.f - ri) / (1.f + ri);
+            r0 *= r0;
+
+            float cost1 = -nDotR; // cosine of theta_1
+            float cost2 = 1.f - ri * ri * (1.f - cost1 * cost1); // cosine of theta_2
+            float fresnel = r0 + (1.f - r0) * FW::pow(1.f - cost1, 5.f); // Schlick-approximation
+
+            float randProb = R.getF32();
+
+            if (cost2 > 0 && randProb > fresnel)
+            {
+                // refraction direction
+                ref_dir = ri * rd + (ri * cost1 - FW::sqrt(cost2)) * n;
+            }
+            else
+            {
+                // reflection direction
+                ref_dir = rd + 2 * FW::abs(nDotR) * n;
+            }
+
+            // Perfect specular Reflections and Refractions
             if (experimental_bPureRef)
             {
-                float r0 = (1.f - ri) / (1.f + ri);
-                r0 *= r0;
-
-                float cost1 = -nDotR; // cosine of theta_1
-                float cost2 = 1.f - ri * ri * (1.f - cost1 * cost1); // cosine of theta_2
-                float fresnel = r0 + (1.f - r0) * FW::pow(1.f - cost1, 5.f); // Schlick-approximation
-
-                float randProb = R.getF32();
-
-                if (cost2 > 0 && randProb > fresnel)
-                {
-                    // refraction direction
-                    ref_dir = ri * rd + (ri * cost1 - FW::sqrt(cost2)) * n;
-                }
-                else
-                {
-                    // reflection direction - perfect mirror!
-                    ref_dir = rd + 2 * FW::abs(nDotR) * n;
-                    pdf_rayDirection = 1;
-                }
-
                 Ei *= 1.15f;
-            }
-            /////////////////////////////////////////////////////////////////////////////
 
-            // Update ray direction for next iteration
-            Rd = (*ctx.m_camera).getFar() * ref_dir.normalized();
+                // Update ray direction for next iteration
+                Rd = (*ctx.m_camera).getFar() * ref_dir.normalized();
+
+                // Am I right here?
+                pdf_rayDirection = 1;
+            }
+            else
+            {
+                // Update ray direction for next iteration
+                // For sure something else should be there, but what?
+                Rd = (*ctx.m_camera).getFar() * (ref_dir.normalized() + 0.1f * (formBasis(n) * cwd)).normalized();
+
+                // For sure something else should be there, but what?
+                pdf_rayDirection = FW::abs(nDotR) / FW_PI;
+            }
         }
 
         if (experimental_bOnlyDiffuseThroughput)

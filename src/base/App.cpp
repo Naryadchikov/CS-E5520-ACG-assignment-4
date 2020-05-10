@@ -114,8 +114,7 @@ App::App(std::vector<std::string>& cmd_args)
     m_commonCtrl.addToggle(&m_enableReflectionsAndRefractions, FW_KEY_NONE, "Use reflection and refraction rays",
                            &clear_on_next_frame);
     m_commonCtrl.addToggle(&m_playbackVisualization, FW_KEY_NONE, "Visualization playback");
-    m_commonCtrl.addToggle(&experimental_bPureRef, FW_KEY_NONE,
-                           "Ignores sampling half vector for reflection direction, making pure mirror reflection",
+    m_commonCtrl.addToggle(&experimental_bPureRef, FW_KEY_NONE, "Perfect Specular Reflections and Refractions",
                            &clear_on_next_frame);
     m_commonCtrl.addToggle(&experimental_bOnlyDiffuseThroughput, FW_KEY_NONE,
                            "Accounting only diffuse part to throughput", &clear_on_next_frame);

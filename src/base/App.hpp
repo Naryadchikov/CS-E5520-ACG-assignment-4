@@ -185,7 +185,7 @@ namespace FW
         // Gauss filter width
         float m_GaussFilterWidth;
 
-        // if true - ignores sampling half vector for reflection direction, making pure mirror reflection
+        // if true - making perfect specular Reflections and Refractions
         bool experimental_bPureRef;
 
         // if true - accounting only diffuse part to throughput
