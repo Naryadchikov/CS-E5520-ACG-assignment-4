@@ -162,6 +162,8 @@ namespace FW
 
         void setOnlyDiffuseThroughput(bool b) { experimental_bOnlyDiffuseThroughput = b; }
 
+        void setMagicButton(bool b) { bMagicButton = b; }
+
     protected:
 
         __int64 m_s64TotalRays;
@@ -193,5 +195,9 @@ namespace FW
 
         // if true - accounting only diffuse part to throughput
         static bool experimental_bOnlyDiffuseThroughput;
+
+        // if true - getting negative numbers while using Sobol sequence and making CW direction
+        // For no reason giving more pleasant picture with almost no noise....
+        static bool bMagicButton;
     };
 } // namespace FW

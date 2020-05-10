@@ -53,6 +53,7 @@ App::App(std::vector<std::string>& cmd_args)
       m_lightColorBlue(57),
       experimental_bPureRef(true),
       experimental_bOnlyDiffuseThroughput(true),
+      experimental_bMagicButton(false),
       m_img(Vec2i(10, 10), ImageFormat::RGBA_Vec4f) // will get resized immediately
 {
     m_commonCtrl.showFPS(true);
@@ -118,6 +119,7 @@ App::App(std::vector<std::string>& cmd_args)
                            &clear_on_next_frame);
     m_commonCtrl.addToggle(&experimental_bOnlyDiffuseThroughput, FW_KEY_NONE,
                            "Accounting only diffuse part to throughput", &clear_on_next_frame);
+    m_commonCtrl.addToggle(&experimental_bMagicButton, FW_KEY_NONE, "Add some magic!", &clear_on_next_frame);
 
     m_commonCtrl.beginSliderStack();
     m_commonCtrl.addSlider(&m_numDebugPathCount, 1, 1000, false, FW_KEY_NONE, FW_KEY_NONE,
@@ -591,6 +593,7 @@ bool App::handleEvent(const Window::Event& ev)
             m_pathtrace_renderer->setGaussFilterWidth(m_GaussFilterWidth);
             m_pathtrace_renderer->setPureRef(experimental_bPureRef);
             m_pathtrace_renderer->setOnlyDiffuseThroughput(experimental_bOnlyDiffuseThroughput);
+            m_pathtrace_renderer->setMagicButton(experimental_bMagicButton);
 
             m_pathtrace_renderer->startPathTracingProcess(m_mesh.get(), m_areaLights, m_rt.get(), &m_img,
                                                           m_useRussianRoulette ? -m_numBounces : m_numBounces,
@@ -732,6 +735,7 @@ void App::renderFrame(GLContext* gl)
         m_pathtrace_renderer->setGaussFilterWidth(m_GaussFilterWidth);
         m_pathtrace_renderer->setPureRef(experimental_bPureRef);
         m_pathtrace_renderer->setOnlyDiffuseThroughput(experimental_bOnlyDiffuseThroughput);
+        m_pathtrace_renderer->setMagicButton(experimental_bMagicButton);
 
         m_pathtrace_renderer->startPathTracingProcess(m_mesh.get(), m_areaLights, m_rt.get(), &m_img,
                                                       m_useRussianRoulette ? -m_numBounces : m_numBounces,

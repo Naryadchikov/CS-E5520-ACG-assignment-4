@@ -191,6 +191,10 @@ namespace FW
         // if true - accounting only diffuse part to throughput
         bool experimental_bOnlyDiffuseThroughput;
 
+        // if true - getting negative numbers while using Sobol sequence and making CW direction
+        // For no reason giving more pleasant picture with almost no noise....
+        bool experimental_bMagicButton;
+
         bool clear_on_next_frame = false;
         Mat4f previous_camera = Mat4f(0);
         Image m_img;

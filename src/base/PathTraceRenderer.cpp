@@ -12,11 +12,17 @@
 namespace FW
 {
     bool PathTraceRenderer::m_normalMapped = false;
+
     bool PathTraceRenderer::debugVis = false;
+
     float PathTraceRenderer::m_terminationProb = 0.2f;
+
     bool PathTraceRenderer::m_enableEmittingTriangles = false;
+
     bool PathTraceRenderer::m_enableReflectionsAndRefractions = false;
+
     int PathTraceRenderer::m_AARaysNumber = 4;
+
     float PathTraceRenderer::m_GaussFilterWidth = 1.f;
 
     // should be false when I make reflections work in a proper way
@@ -24,6 +30,9 @@ namespace FW
 
     // should be false when I start to handle throughput properly
     bool PathTraceRenderer::experimental_bOnlyDiffuseThroughput = true;
+
+    // Shouldn't exist...
+    bool PathTraceRenderer::bMagicButton = false;
 
     void PathTraceRenderer::getTextureParameters(const RaycastResult& hit, Vec3f& diffuse, Vec3f& n, Vec3f& specular)
     {
@@ -382,11 +391,32 @@ namespace FW
         // 2nd bounce gets dimensions 5th and 6th
         // and so on
 
-        // low discrepancy sampling with Sobol sequence
-        float rs1 = sobol::sample(samplerBase + rnd, bounce + 2);
-        float rs2 = sobol::sample(samplerBase + rnd, bounce + 3);
+        // variables for low discrepancy sampling with Sobol sequence
+        float rs1;
+        float rs2;
 
+        // No magic here :(
+        if (!bMagicButton)
+        {
+            // Normal case scenario - getting values from 0 to 1
+            rs1 = sobol::sample(samplerBase + rnd, bounce + 2);
+            rs2 = sobol::sample(samplerBase + rnd, bounce + 3);
+        }
+        // Magic is happening here! Accidentally discovered it by mistake...
+        // Boosting speed in several times, giving more pleasant result with almost no noise...
+        else
+        {
+            // Weird case scenario - getting values from -1 to 1
+            // So if we get values from [-1 to 0) we are going to take square root from negative number next...
+            rs1 = 2.f * sobol::sample(samplerBase + rnd, bounce + 2) - 1.f;
+            rs2 = 2.f * sobol::sample(samplerBase + rnd, bounce + 3) - 1.f;
+        }
+
+        // If we are using MagicButton, it could be NaN, if we get negative 'rs1' value.
+        // That means that we will terminate next iteration in path sequence.
+        // That termination explains better speed performance, but why is the result picture itself better?
         float r = FW::sqrt(rs1);
+
         float theta = 2.f * FW_PI * rs2;
         Vec3f cwd = Vec3f(r * FW::cos(theta),
                           r * FW::sin(theta),
