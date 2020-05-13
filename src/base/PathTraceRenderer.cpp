@@ -25,11 +25,7 @@ namespace FW
 
     float PathTraceRenderer::m_GaussFilterWidth = 1.f;
 
-    // should be false when I make reflections work in a proper way
-    bool PathTraceRenderer::experimental_bPureRef = true;
-
-    // should be false when I start to handle throughput properly
-    bool PathTraceRenderer::experimental_bOnlyDiffuseThroughput = true;
+    bool PathTraceRenderer::bIsV1Active = true;
 
     // Shouldn't exist...
     bool PathTraceRenderer::bMagicButton = false;
@@ -207,7 +203,15 @@ namespace FW
 
                 T = throughput;
 
-                Ei += T * pathIteration(ctx, R, result, samplerBase, bounce, Rd, n, throughput, visualization);
+                if (bIsV1Active)
+                {
+                    Ei += T * pathIteration(ctx, R, result, samplerBase, bounce, Rd, n, throughput,
+                                            visualization);
+                }
+                else
+                {
+                    Ei += T * pathIterationV2(ctx, R, result, samplerBase, bounce, Rd, n, throughput, visualization);
+                }
 
                 // Update ray origin for next iteration
                 Ro = result.point;
@@ -248,8 +252,17 @@ namespace FW
                 {
                     T = throughput;
 
-                    Ei += T * pathIteration(ctx, R, result, samplerBase, bounce, Rd, n, throughput, visualization) /
-                        (1.f - m_terminationProb);
+                    if (bIsV1Active)
+                    {
+                        Ei += T * pathIteration(ctx, R, result, samplerBase, bounce, Rd, n, throughput, visualization) /
+                            (1.f - m_terminationProb);
+                    }
+                    else
+                    {
+                        Ei += T * pathIterationV2(ctx, R, result, samplerBase, bounce, Rd, n, throughput,
+                                                  visualization) /
+                            (1.f - m_terminationProb);
+                    }
 
                     // Update ray origin for next iteration
                     Ro = result.point;
@@ -294,6 +307,9 @@ namespace FW
 
         getTextureParameters(result, diffuse, n, specular);
 
+        Vec3f diffuseBRDF = diffuse / FW_PI; // Lambertian diffuse BRDF, it is albedo/pi
+        Vec3f specularBRDF(0.f); // will update it later
+
         Vec3f rd = Rd.normalized(); // normalized ray direction
         float nDotR = FW::dot(rd, n);
         float ri = result.tri->m_material->indexOfRefraction;
@@ -330,9 +346,6 @@ namespace FW
         Vec3f o = result.point;
         Vec3f d = Pl - o;
 
-        Vec3f ref_dir(0.f);
-        float pdf_rayDirection = 1.f;
-
         // trace shadow ray to see if it's blocked
         if (!ctx.m_rt->raycast(o + 0.001f * n, 0.998f * d))
         {
@@ -341,8 +354,6 @@ namespace FW
             float cosThetaL = FW::clamp(FW::dot(unionD, -lightNormal), 0.f, 1.f);
             float cosTheta = FW::clamp(FW::dot(unionD, n), 0.f, 1.f);
             float distance = d.length();
-
-            Vec3f color = diffuse;
 
             // glossy reflection (Blinn-Phong)
             if (specular.length() > 0.f)
@@ -358,16 +369,11 @@ namespace FW
                 // Intensity of the specular light
                 float nDotH = FW::dot(n, H);
 
-                // adding specular part to diffuse one
-                color += FW::pow(FW::max(0.f, nDotH), glossiness) * normFactor * specular;
-
-                // is it right???
-                // computing reflection direction with half vector
-                //ref_dir = rd + 2 * FW::abs(FW::dot(rd, H)) * H;
-                //pdf_rayDirection = 1;
+                specularBRDF = FW::pow(FW::max(0.f, nDotH), glossiness) * normFactor * specular;
             }
 
-            Ei = cosThetaL * cosTheta / FW::max(FW_PI * pdf_light * distance * distance, 1e-7f) * lightEmission * color;
+            Ei = cosThetaL * cosTheta / FW::max(pdf_light * distance * distance, 1e-7f) * lightEmission *
+                (diffuseBRDF + specularBRDF);
 
             if (debugVis)
             {
@@ -384,55 +390,27 @@ namespace FW
             }
         }
 
-        int rnd = R.getU32(1, 10000);
-
-        /* Sampling of a cosine-weighted hemisphere */
-        // 1st bounce draws from 3rd and 4th dimensions
-        // 2nd bounce gets dimensions 5th and 6th
-        // and so on
-
-        // variables for low discrepancy sampling with Sobol sequence
-        float rs1;
-        float rs2;
-
-        // No magic here :(
-        if (!bMagicButton)
-        {
-            // Normal case scenario - getting values from 0 to 1
-            rs1 = sobol::sample(samplerBase + rnd, bounce + 2);
-            rs2 = sobol::sample(samplerBase + rnd, bounce + 3);
-        }
-        // Magic is happening here! Accidentally discovered it by mistake...
-        // Boosting speed in several times, giving more pleasant result with almost no noise...
-        else
-        {
-            // Weird case scenario - getting values from -1 to 1
-            // So if we get values from [-1 to 0) we are going to take square root from negative number next...
-            rs1 = 2.f * sobol::sample(samplerBase + rnd, bounce + 2) - 1.f;
-            rs2 = 2.f * sobol::sample(samplerBase + rnd, bounce + 3) - 1.f;
-        }
-
-        // If we are using MagicButton, it could be NaN, if we get negative 'rs1' value.
-        // That means that we will terminate next iteration in path sequence.
-        // That termination explains better speed performance, but why is the result picture itself better?
-        float r = FW::sqrt(rs1);
-
-        float theta = 2.f * FW_PI * rs2;
-        Vec3f cwd = Vec3f(r * FW::cos(theta),
-                          r * FW::sin(theta),
-                          FW::sqrt(FW::max(0.f, 1.f - rs1)));
-
         /* Choosing new ray direction for next iteration */
+        // ray direction for new bounce
+        Vec3f newRayDirection;
+
+        // probability of choosing that new ray
+        float pdf_newRayDirection = 1.f;
+
+        // dot product of hit normal and new ray direction
+        float nDotNewRd;
+
         // Diffuse BRDF case
         if (!m_enableReflectionsAndRefractions || specular.length() == 0.f)
         {
             // Update ray direction for next iteration
-            Rd = (*ctx.m_camera).getFar() * (formBasis(n) * cwd);
+            newRayDirection = formBasis(n) * sampleCosineWeightedDirection(samplerBase, bounce, R);
 
-            // Am I right here?
-            pdf_rayDirection = FW::abs(nDotR) / FW_PI;
+            nDotNewRd = FW::dot(n, newRayDirection);
+
+            pdf_newRayDirection = FW::abs(nDotNewRd) / FW_PI;
         }
-        else
+        else // Perfect specular Reflections and Refractions
         {
             float r0 = (1.f - ri) / (1.f + ri);
             r0 *= r0;
@@ -446,48 +424,160 @@ namespace FW
             if (cost2 > 0 && randProb > fresnel)
             {
                 // refraction direction
-                ref_dir = ri * rd + (ri * cost1 - FW::sqrt(cost2)) * n;
+                newRayDirection = (ri * rd + (ri * cost1 - FW::sqrt(cost2)) * n).normalized();
             }
             else
             {
                 // reflection direction
-                ref_dir = rd + 2 * FW::abs(nDotR) * n;
+                newRayDirection = (rd + 2 * FW::abs(nDotR) * n).normalized();
             }
 
-            // Perfect specular Reflections and Refractions
-            if (experimental_bPureRef)
-            {
-                Ei *= 1.15f;
+            Ei *= 1.15f;
 
-                // Update ray direction for next iteration
-                Rd = (*ctx.m_camera).getFar() * ref_dir.normalized();
+            nDotNewRd = FW::dot(n, newRayDirection);
 
-                // Am I right here?
-                pdf_rayDirection = 1;
-            }
-            else
-            {
-                // Update ray direction for next iteration
-                // For sure something else should be there, but what?
-                Rd = (*ctx.m_camera).getFar() * (ref_dir.normalized() + 0.1f * (formBasis(n) * cwd)).normalized();
-
-                // For sure something else should be there, but what?
-                pdf_rayDirection = FW::abs(nDotR) / FW_PI;
-            }
+            pdf_newRayDirection = 1.f;
         }
 
-        if (experimental_bOnlyDiffuseThroughput)
+        // throughput for next iterations
+        if (m_enableReflectionsAndRefractions)
         {
-            // This should be work only for pure diffuse material...
-            throughput *= diffuse;
+            throughput *= FW::abs(nDotNewRd) * (diffuseBRDF + specularBRDF) / pdf_newRayDirection;
         }
         else
         {
-            // That one should be in general.
-            // However, it is not working right for me...
-            // It would be really helpful if you can provide feedback, telling what is wrong :)
-            throughput *= FW::abs(nDotR) * (diffuse + specular) / pdf_rayDirection;
+            throughput *= diffuse; // same as throughput *= FW::abs(nDotNewRd) * diffuseBRDF / pdf_newRayDirection
         }
+
+        // Update ray direction for next iteration
+        Rd = (*ctx.m_camera).getFar() * newRayDirection;
+
+        return Ei;
+    }
+
+    // Do not know why it is not working!
+    Vec3f PathTraceRenderer::pathIterationV2(PathTracerContext& ctx, Random& R, const RaycastResult result,
+                                             int samplerBase, int bounce, Vec3f& Rd, Vec3f& n, Vec3f& throughput,
+                                             std::vector<PathVisualizationNode>& visualization)
+    {
+        Vec3f rd = Rd.normalized(); // normalized ray direction
+        float nDotR = FW::dot(rd, n);
+
+        if (nDotR > 0.f)
+        {
+            n = -n; // flip normal
+        }
+
+        /* Getting material parameters */
+        Vec3f diffuse;
+        Vec3f specular;
+
+        getTextureParameters(result, diffuse, n, specular);
+
+        // the specular exponent (higher values give a sharper specular reflection)
+        float glossiness = result.tri->m_material->glossiness;
+
+        /* Choosing new ray direction for next iteration */
+        // Pure mirror reflection direction
+        Vec3f mirrorReflectionDirection = (rd + 2 * FW::abs(nDotR) * n).normalized();
+
+        // Ray direction for new bounce
+        Vec3f newRayDirection;
+
+        // Dot product of hit normal and new ray direction
+        float nDotNewRd;
+
+        // probability of choosing that new ray
+        float pdf_newRayDirection;
+
+        // Randomly select whether we’ll compute a diffuse sample or a specular sample
+        float u = R.getF32();
+        float k_d = (diffuse.x + diffuse.y + diffuse.z) / 3.f;
+        float k_s = (specular.x + specular.y + specular.z) / 3.f;
+        //float k_d_prob = k_d / (k_d + k_s);
+        float k_d_prob = 1;
+        float k_s_prob = k_s / (k_d + k_s);
+
+        // take a diffuse sample and compute it's contribution
+        if (k_d_prob > u)
+        {
+            newRayDirection = formBasis(n) * sampleCosineWeightedDirection(samplerBase, bounce, R);
+
+            nDotNewRd = FW::dot(n, newRayDirection);
+
+            pdf_newRayDirection = FW::abs(nDotNewRd) / FW_PI;
+
+            pdf_newRayDirection /= k_d_prob;
+        }
+        else // take a specular sample and compute it's contribution (no absorption probability)
+        {
+            newRayDirection = formBasis(mirrorReflectionDirection) * samplePhongReflectionDirection(
+                glossiness, samplerBase, bounce, R);
+
+            nDotNewRd = FW::dot(n, newRayDirection);
+
+            float cosAlpha = FW::dot(mirrorReflectionDirection, newRayDirection);
+
+            float pdf_phong = (glossiness + 1.f) / (2.f * FW_PI) * FW::pow(FW::max(cosAlpha, 0.f), glossiness);
+
+            pdf_newRayDirection = pdf_phong;
+
+            pdf_newRayDirection /= k_s_prob;
+        }
+
+        // Lambertian diffuse BRDF, it is albedo/pi
+        Vec3f diffuseBRDF = diffuse / FW_PI;
+
+        // Specular BRDF Phong model
+        float cosAlpha = FW::dot(mirrorReflectionDirection, newRayDirection);
+        Vec3f specularBRDF = (glossiness + 2.f) / (2.f * FW_PI) * FW::pow(FW::max(cosAlpha, 0.f), glossiness) *
+            specular;
+
+        /* Light sampling */
+        Vec3f Ei(0.f);
+        float pdf_light;
+        Vec3f Pl;
+        Vec3f lightNormal;
+        Vec3f lightEmission;
+
+        chooseAndSampleLight(ctx, samplerBase, bounce, pdf_light, Pl, lightNormal, lightEmission, R, result);
+
+        // construct vector from current vertex (o) to light sample
+        Vec3f hitOrigin = result.point;
+        Vec3f lightDirection = Pl - hitOrigin;
+
+        // trace shadow ray to see if it's blocked
+        if (!ctx.m_rt->raycast(hitOrigin + 0.001f * n, 0.998f * lightDirection))
+        {
+            // if not, add the appropriate emission, 1/r^2 and clamped cosine terms, accounting for the PDF as well            
+            Vec3f unionLightDirection = lightDirection.normalized();
+            float cosThetaL = FW::clamp(FW::dot(unionLightDirection, -lightNormal), 0.f, 1.f);
+            float cosTheta = FW::clamp(FW::dot(unionLightDirection, n), 0.f, 1.f);
+            float distance = lightDirection.length();
+
+            Ei = cosThetaL * cosTheta / FW::max(pdf_light * distance * distance, 1e-7f) * lightEmission *
+                (diffuseBRDF + specularBRDF);
+
+            if (debugVis)
+            {
+                PathVisualizationNode node;
+
+                // shadow ray
+                node.lines.push_back(PathVisualizationLine(hitOrigin, Pl, Vec3f(1, 1, 0)));
+
+                // light normal
+                node.lines.push_back(PathVisualizationLine(Pl, Pl + lightNormal * .1f,
+                                                           Vec3f(1, 0, 0)));
+
+                visualization.push_back(node);
+            }
+        }
+
+        // throughput for next iterations
+        throughput *= FW::abs(nDotNewRd) * (diffuseBRDF + specularBRDF) / pdf_newRayDirection;
+
+        // Update ray direction for next iteration
+        Rd = (*ctx.m_camera).getFar() * newRayDirection;
 
         return Ei;
     }
@@ -581,12 +671,63 @@ namespace FW
         pdf = 1.f / tri->area();
     }
 
-    float PathTraceRenderer::filterGauss(float x, float y)
+    // 1st bounce draws from 3rd and 4th dimensions
+    // 2nd bounce gets dimensions 5th and 6th
+    // and so on
+    Vec3f PathTraceRenderer::sampleCosineWeightedDirection(int samplerBase, int bounce, Random R)
     {
-        float sigma = FW::clamp(m_GaussFilterWidth / 3.f, 1.f, m_GaussFilterWidth);
-        float s = 2.f * sigma * sigma;
+        int rnd = R.getU32(1, 10000);
 
-        return 1.f / FW::sqrt(FW_PI * s) * FW::exp(-1.f * (x * x + y * y) / s);
+        // variables for low discrepancy sampling with Sobol sequence
+        float rs1;
+        float rs2;
+
+        // No magic here :(
+        if (!bMagicButton)
+        {
+            // Normal case scenario - getting values from 0 to 1
+            rs1 = sobol::sample(samplerBase + rnd, bounce + 2);
+            rs2 = sobol::sample(samplerBase + rnd, bounce + 3);
+        }
+            // Magic is happening here! Accidentally discovered it by mistake...
+            // Boosting speed in several times, giving more pleasant result with almost no noise...
+        else
+        {
+            // Weird case scenario - getting values from -1 to 1
+            // So if we get values from [-1 to 0) we are going to take square root from negative number next...
+            rs1 = 2.f * sobol::sample(samplerBase + rnd, bounce + 2) - 1.f;
+            rs2 = 2.f * sobol::sample(samplerBase + rnd, bounce + 3) - 1.f;
+        }
+
+        // If we are using MagicButton, it could be NaN, if we get negative 'rs1' value.
+        // That means that we will terminate next iteration in path sequence.
+        // That termination explains better speed performance, but why is the result picture itself better?
+        float r = FW::sqrt(rs1);
+
+        float theta = 2.f * FW_PI * rs2;
+
+        return Vec3f(r * cos(theta),
+                     r * sin(theta),
+                     FW::sqrt(FW::max(0.f, 1.f - rs1)));
+    }
+
+    // 1st bounce draws from 3rd and 4th dimensions
+    // 2nd bounce gets dimensions 5th and 6th
+    // and so on
+    Vec3f PathTraceRenderer::samplePhongReflectionDirection(float glossiness, int samplerBase, int bounce, Random R)
+    {
+        int rnd = R.getU32(1, 10000);
+
+        // variables for low discrepancy sampling with Sobol sequence
+        float rs1 = sobol::sample(samplerBase + rnd, bounce + 2);
+        float rs2 = sobol::sample(samplerBase + rnd, bounce + 3);
+
+        float r = FW::pow(rs1, 1.f / (glossiness + 1.f));
+        float theta = 2.f * FW_PI * rs2;
+
+        return Vec3f(r * cos(theta),
+                     r * sin(theta),
+                     FW::sqrt(FW::max(0.f, 1.f - rs1)));
     }
 
     // This function is responsible for asynchronously generating paths for a given block.
@@ -678,6 +819,14 @@ namespace FW
             prev += color;
             image->setVec4f(Vec2i(pixel_x, pixel_y), prev);
         }
+    }
+
+    float PathTraceRenderer::filterGauss(float x, float y)
+    {
+        float sigma = FW::clamp(m_GaussFilterWidth / 3.f, 1.f, m_GaussFilterWidth);
+        float s = 2.f * sigma * sigma;
+
+        return 1.f / FW::sqrt(FW_PI * s) * FW::exp(-1.f * (x * x + y * y) / s);
     }
 
     void PathTraceRenderer::startPathTracingProcess(const MeshWithColors* scene,

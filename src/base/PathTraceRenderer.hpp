@@ -128,11 +128,19 @@ namespace FW
                                    int bounce, Vec3f& Rd, Vec3f& n, Vec3f& throughput,
                                    std::vector<PathVisualizationNode>& visualization);
 
+        static Vec3f pathIterationV2(PathTracerContext& ctx, Random& R, const RaycastResult result,
+                                          int samplerBase, int bounce, Vec3f& Rd, Vec3f& n, Vec3f& throughput,
+                                          std::vector<PathVisualizationNode>& visualization);
+
         static void chooseAndSampleLight(PathTracerContext& ctx, int samplerBase, int bounce, float& pdf, Vec3f& Pl,
                                          Vec3f& lightNormal, Vec3f& lightEmission, Random& R,
                                          const RaycastResult& result);
 
         static void sampleEmissionTriangle(float& pdf, Vec3f& p, Random& rnd, RTTriangle* tri);
+
+        static Vec3f sampleCosineWeightedDirection(int samplerBase, int bounce, Random R);
+
+        static Vec3f samplePhongReflectionDirection(float glossiness, int samplerBase, int bounce, Random R);
 
         static float filterGauss(float x, float y);
 
@@ -158,9 +166,7 @@ namespace FW
 
         void setGaussFilterWidth(float value) { m_GaussFilterWidth = value; }
 
-        void setPureRef(bool b) { experimental_bPureRef = b; }
-
-        void setOnlyDiffuseThroughput(bool b) { experimental_bOnlyDiffuseThroughput = b; }
+        void setIsV1Active(bool b) { bIsV1Active = b; }
 
         void setMagicButton(bool b) { bMagicButton = b; }
 
@@ -190,11 +196,9 @@ namespace FW
         // Gauss filter width
         static float m_GaussFilterWidth;
 
-        // if true - making perfect specular Reflections and Refractions
-        static bool experimental_bPureRef;
-
-        // if true - accounting only diffuse part to throughput
-        static bool experimental_bOnlyDiffuseThroughput;
+        // if true - use first version of path iteration function with perfect mirror reflections
+        // if false - use V2, which is not working perfectly now
+        static bool bIsV1Active;
 
         // if true - getting negative numbers while using Sobol sequence and making CW direction
         // For no reason giving more pleasant picture with almost no noise....

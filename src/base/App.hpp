@@ -185,11 +185,9 @@ namespace FW
         // Gauss filter width
         float m_GaussFilterWidth;
 
-        // if true - making perfect specular Reflections and Refractions
-        bool experimental_bPureRef;
-
-        // if true - accounting only diffuse part to throughput
-        bool experimental_bOnlyDiffuseThroughput;
+        // if true - use first version of path iteration function with perfect mirror reflections
+        // if false - use V2, which is not working perfectly now
+        bool bIsV1Active;
 
         // if true - getting negative numbers while using Sobol sequence and making CW direction
         // For no reason giving more pleasant picture with almost no noise....

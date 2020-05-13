@@ -51,8 +51,7 @@ App::App(std::vector<std::string>& cmd_args)
       m_lightColorRed(57),
       m_lightColorGreen(57),
       m_lightColorBlue(57),
-      experimental_bPureRef(true),
-      experimental_bOnlyDiffuseThroughput(true),
+      bIsV1Active(true),
       experimental_bMagicButton(false),
       m_img(Vec2i(10, 10), ImageFormat::RGBA_Vec4f) // will get resized immediately
 {
@@ -114,11 +113,10 @@ App::App(std::vector<std::string>& cmd_args)
     m_commonCtrl.addToggle(&m_enableEmittingTriangles, FW_KEY_NONE, "Sample emissive triangles", &clear_on_next_frame);
     m_commonCtrl.addToggle(&m_enableReflectionsAndRefractions, FW_KEY_NONE, "Use reflection and refraction rays",
                            &clear_on_next_frame);
-    m_commonCtrl.addToggle(&m_playbackVisualization, FW_KEY_NONE, "Visualization playback");
-    m_commonCtrl.addToggle(&experimental_bPureRef, FW_KEY_NONE, "Perfect Specular Reflections and Refractions",
+    m_commonCtrl.addToggle(&bIsV1Active, FW_KEY_NONE,
+                           "Use first version of path iteration function with perfect mirror reflections",
                            &clear_on_next_frame);
-    m_commonCtrl.addToggle(&experimental_bOnlyDiffuseThroughput, FW_KEY_NONE,
-                           "Accounting only diffuse part to throughput", &clear_on_next_frame);
+    m_commonCtrl.addToggle(&m_playbackVisualization, FW_KEY_NONE, "Visualization playback");
     m_commonCtrl.addToggle(&experimental_bMagicButton, FW_KEY_NONE, "Add some magic!", &clear_on_next_frame);
 
     m_commonCtrl.beginSliderStack();
@@ -591,8 +589,7 @@ bool App::handleEvent(const Window::Event& ev)
             m_pathtrace_renderer->setEnableReflectionsAndRefractions(m_enableReflectionsAndRefractions);
             m_pathtrace_renderer->setAARaysNumber(m_AARaysNumber);
             m_pathtrace_renderer->setGaussFilterWidth(m_GaussFilterWidth);
-            m_pathtrace_renderer->setPureRef(experimental_bPureRef);
-            m_pathtrace_renderer->setOnlyDiffuseThroughput(experimental_bOnlyDiffuseThroughput);
+            m_pathtrace_renderer->setIsV1Active(bIsV1Active);
             m_pathtrace_renderer->setMagicButton(experimental_bMagicButton);
 
             m_pathtrace_renderer->startPathTracingProcess(m_mesh.get(), m_areaLights, m_rt.get(), &m_img,
@@ -733,8 +730,7 @@ void App::renderFrame(GLContext* gl)
         m_pathtrace_renderer->setEnableReflectionsAndRefractions(m_enableReflectionsAndRefractions);
         m_pathtrace_renderer->setAARaysNumber(m_AARaysNumber);
         m_pathtrace_renderer->setGaussFilterWidth(m_GaussFilterWidth);
-        m_pathtrace_renderer->setPureRef(experimental_bPureRef);
-        m_pathtrace_renderer->setOnlyDiffuseThroughput(experimental_bOnlyDiffuseThroughput);
+        m_pathtrace_renderer->setIsV1Active(bIsV1Active);
         m_pathtrace_renderer->setMagicButton(experimental_bMagicButton);
 
         m_pathtrace_renderer->startPathTracingProcess(m_mesh.get(), m_areaLights, m_rt.get(), &m_img,
