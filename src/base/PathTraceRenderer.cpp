@@ -461,18 +461,19 @@ namespace FW
                                              std::vector<PathVisualizationNode>& visualization)
     {
         Vec3f rd = Rd.normalized(); // normalized ray direction
-        float nDotR = FW::dot(rd, n);
-
-        if (nDotR > 0.f)
-        {
-            n = -n; // flip normal
-        }
 
         /* Getting material parameters */
         Vec3f diffuse;
         Vec3f specular;
 
         getTextureParameters(result, diffuse, n, specular);
+
+        float nDotR = FW::dot(rd, n);
+
+        if (nDotR > 0.f)
+        {
+            n = -n; // flip normal
+        }
 
         // the specular exponent (higher values give a sharper specular reflection)
         float glossiness = result.tri->m_material->glossiness;
@@ -549,7 +550,7 @@ namespace FW
         // trace shadow ray to see if it's blocked
         if (!ctx.m_rt->raycast(hitOrigin + 0.001f * n, 0.998f * lightDirection))
         {
-            // if not, add the appropriate emission, 1/r^2 and clamped cosine terms, accounting for the PDF as well            
+            // if not, add the appropriate emission, 1/r^2 and clamped cosine terms, accounting for the PDF as well
             Vec3f unionLightDirection = lightDirection.normalized();
             float cosThetaL = FW::clamp(FW::dot(unionLightDirection, -lightNormal), 0.f, 1.f);
             float cosTheta = FW::clamp(FW::dot(unionLightDirection, n), 0.f, 1.f);
