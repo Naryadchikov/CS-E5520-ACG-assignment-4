@@ -185,6 +185,15 @@ namespace FW
         // Gauss filter width
         float m_GaussFilterWidth;
 
+        // whether or not enable depth of field
+        bool m_enableDepthOfField;
+
+        // lens focal distance
+        float m_focalDistance;
+
+        // lens aperture radius
+        float m_apertureRadius;
+
         // if true - use first version of path iteration function with perfect mirror reflections
         // if false - use V2, which is not working perfectly now
         bool bIsV1Active;

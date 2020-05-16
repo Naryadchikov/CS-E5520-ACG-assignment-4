@@ -129,8 +129,8 @@ namespace FW
                                    std::vector<PathVisualizationNode>& visualization);
 
         static Vec3f pathIterationV2(PathTracerContext& ctx, Random& R, const RaycastResult result,
-                                          int samplerBase, int bounce, Vec3f& Rd, Vec3f& n, Vec3f& throughput,
-                                          std::vector<PathVisualizationNode>& visualization);
+                                     int samplerBase, int bounce, Vec3f& Rd, Vec3f& n, Vec3f& throughput,
+                                     std::vector<PathVisualizationNode>& visualization);
 
         static void chooseAndSampleLight(PathTracerContext& ctx, int samplerBase, int bounce, float& pdf, Vec3f& Pl,
                                          Vec3f& lightNormal, Vec3f& lightEmission, Random& R,
@@ -166,6 +166,12 @@ namespace FW
 
         void setGaussFilterWidth(float value) { m_GaussFilterWidth = value; }
 
+        void setEnableDepthOfField(bool b) { m_enableDepthOfField = b; }
+
+        void setFocalDistance(float value) { m_focalDistance = value; }
+
+        void setApertureRadius(float value) { m_apertureRadius = value; }
+
         void setIsV1Active(bool b) { bIsV1Active = b; }
 
         void setMagicButton(bool b) { bMagicButton = b; }
@@ -195,6 +201,15 @@ namespace FW
 
         // Gauss filter width
         static float m_GaussFilterWidth;
+
+        // whether or not enable depth of field
+        static bool m_enableDepthOfField;
+
+        // lens focal distance
+        static float m_focalDistance;
+
+        // lens aperture radius
+        static float m_apertureRadius;
 
         // if true - use first version of path iteration function with perfect mirror reflections
         // if false - use V2, which is not working perfectly now

@@ -51,6 +51,9 @@ App::App(std::vector<std::string>& cmd_args)
       m_lightColorRed(57),
       m_lightColorGreen(57),
       m_lightColorBlue(57),
+      m_enableDepthOfField(false),
+      m_focalDistance(1.f),
+      m_apertureRadius(0.f),
       bIsV1Active(true),
       experimental_bMagicButton(false),
       m_img(Vec2i(10, 10), ImageFormat::RGBA_Vec4f) // will get resized immediately
@@ -116,6 +119,7 @@ App::App(std::vector<std::string>& cmd_args)
     m_commonCtrl.addToggle(&bIsV1Active, FW_KEY_NONE,
                            "Use first version of path iteration function with perfect mirror reflections",
                            &clear_on_next_frame);
+    m_commonCtrl.addToggle(&m_enableDepthOfField, FW_KEY_NONE, "Enable Depth of Field", &clear_on_next_frame);
     m_commonCtrl.addToggle(&m_playbackVisualization, FW_KEY_NONE, "Visualization playback");
     m_commonCtrl.addToggle(&experimental_bMagicButton, FW_KEY_NONE, "Add some magic!", &clear_on_next_frame);
 
@@ -124,6 +128,13 @@ App::App(std::vector<std::string>& cmd_args)
                            "Number of debug paths to fire= %d");
     m_commonCtrl.addSlider(&m_visualizationAlpha, 0.01f, 1.0f, false, FW_KEY_NONE, FW_KEY_NONE,
                            "Debug ray visualization alpha= %f");
+    m_commonCtrl.endSliderStack();
+
+    m_commonCtrl.beginSliderStack();
+    m_commonCtrl.addSlider(&m_focalDistance, 0.1f, 100.f, false, FW_KEY_NONE, FW_KEY_NONE, "Lens Focal Distance= %.1f", 0,
+                           &clear_on_next_frame);
+    m_commonCtrl.addSlider(&m_apertureRadius, 0.001f, 1.f, false, FW_KEY_NONE, FW_KEY_NONE,
+                           "Lens Aperture Radius= %.3f", 0, &clear_on_next_frame);
     m_commonCtrl.endSliderStack();
 
     m_commonCtrl.beginSliderStack();
@@ -589,6 +600,9 @@ bool App::handleEvent(const Window::Event& ev)
             m_pathtrace_renderer->setEnableReflectionsAndRefractions(m_enableReflectionsAndRefractions);
             m_pathtrace_renderer->setAARaysNumber(m_AARaysNumber);
             m_pathtrace_renderer->setGaussFilterWidth(m_GaussFilterWidth);
+            m_pathtrace_renderer->setEnableDepthOfField(m_enableDepthOfField);
+            m_pathtrace_renderer->setFocalDistance(m_focalDistance);
+            m_pathtrace_renderer->setApertureRadius(m_apertureRadius);
             m_pathtrace_renderer->setIsV1Active(bIsV1Active);
             m_pathtrace_renderer->setMagicButton(experimental_bMagicButton);
 
@@ -730,6 +744,9 @@ void App::renderFrame(GLContext* gl)
         m_pathtrace_renderer->setEnableReflectionsAndRefractions(m_enableReflectionsAndRefractions);
         m_pathtrace_renderer->setAARaysNumber(m_AARaysNumber);
         m_pathtrace_renderer->setGaussFilterWidth(m_GaussFilterWidth);
+        m_pathtrace_renderer->setEnableDepthOfField(m_enableDepthOfField);
+        m_pathtrace_renderer->setFocalDistance(m_focalDistance);
+        m_pathtrace_renderer->setApertureRadius(m_apertureRadius);
         m_pathtrace_renderer->setIsV1Active(bIsV1Active);
         m_pathtrace_renderer->setMagicButton(experimental_bMagicButton);
 

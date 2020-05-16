@@ -25,6 +25,12 @@ namespace FW
 
     float PathTraceRenderer::m_GaussFilterWidth = 1.f;
 
+    bool PathTraceRenderer::m_enableDepthOfField = false;
+
+    float PathTraceRenderer::m_focalDistance = 1.f;
+
+    float PathTraceRenderer::m_apertureRadius = 0.f;
+
     bool PathTraceRenderer::bIsV1Active = true;
 
     // Shouldn't exist...
@@ -32,10 +38,6 @@ namespace FW
 
     void PathTraceRenderer::getTextureParameters(const RaycastResult& hit, Vec3f& diffuse, Vec3f& n, Vec3f& specular)
     {
-        // YOUR CODE HERE (R1)
-        // Read value from albedo texture into diffuse.
-        // If textured, use the texture; if not, use Material.diffuse.
-        // Note: You can probably reuse parts of the radiosity assignment.
         const auto mat = hit.tri->m_material;
 
         // fetch barycentric coordinates
@@ -182,8 +184,21 @@ namespace FW
         // intersections that come _after_ the point Ro+Rd are to be discarded.
         Rd = Rd - Ro;
 
-        // YOUR CODE HERE (R2-R4):
-        // Implement path tracing with direct light and shadows, scattering and Russian roulette.
+        // Depth of field
+        if (m_enableDepthOfField)
+        {
+            float angle = R.getF32() * 2.f * FW_PI;
+            float radius = FW::sqrt(R.getF32());
+            Vec2f offset = m_apertureRadius * radius * Vec2f(FW::cos(angle), FW::sin(angle));
+
+            Ro += Vec3f(offset, 0.f);
+
+            Vec3f rayDirection = m_focalDistance * Rd.normalized();
+
+            rayDirection -= Vec3f(offset, 0.f);
+            Rd = cameraCtrl.getFar() * rayDirection.normalized();
+        }
+
         Vec3f Ei(0.f);
         Vec3f n(0.f);
         Vec3f throughput(1.f);

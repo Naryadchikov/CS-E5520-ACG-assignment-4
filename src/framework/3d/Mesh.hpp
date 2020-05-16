@@ -93,8 +93,9 @@ public:
 
         Material(void)
         {
-            diffuse             = Vec4f(0.75f, 0.75f, 0.75f, 1.0f);
-            specular            = 0.5f;
+            diffuse             = Vec4f(0.392157f, 0.301961f, 0.321569f, 1.0f);
+            //specular            = 0.5f;
+            specular            = Vec3f(0.096863f, 0.047843f, 0.032157f);
             glossiness          = 32.0f;
             displacementCoef    = 1.0f;
             displacementBias    = 0.0f;
